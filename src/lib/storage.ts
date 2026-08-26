@@ -3,6 +3,12 @@ import { Play } from '../types'
 const STORAGE_KEY = 'playbook.plays.v1'
 
 /**
+ * Ceiling on stored plays. Enforced here rather than at a call site so every
+ * save path hits it — there is more than one button that writes.
+ */
+export const MAX_PLAYS = 100
+
+/**
  * Everything the rest of the app needs from persistence.
  * Swapping this module for a Supabase-backed one later (for cloud sync
  * across coaches/devices) shouldn't require touching any component —
@@ -47,8 +53,13 @@ export const localPlayStore: PlayStore = {
     const plays = readAll()
     const idx = plays.findIndex((p) => p.id === play.id)
     if (idx >= 0) {
-      plays[idx] = play
+      // The editor stamps createdAt = updatedAt = now on every snapshot, so the
+      // original creation date only survives if it's carried over here.
+      plays[idx] = { ...play, createdAt: plays[idx].createdAt ?? play.createdAt }
     } else {
+      if (plays.length >= MAX_PLAYS) {
+        throw new Error(`You've hit the ${MAX_PLAYS}-play limit. Delete an old play to save a new one.`)
+      }
       plays.push(play)
     }
     writeAll(plays)
