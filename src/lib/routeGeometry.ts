@@ -120,6 +120,43 @@ export function pointAtFraction(points: Point[], t: number): Point {
   return points[points.length - 1]
 }
 
+/**
+ * Turns a path into a sine wave running along it — the "carrying the ball"
+ * style. The path is first resampled at even arc-length steps: applying the
+ * sine straight to a freehand polyline (whose points sit a variable ~4 units
+ * apart) gives noise rather than a wave, because phase would advance by point
+ * index instead of by distance travelled.
+ *
+ * The wave is faded in and out over the first and last wavelength so the line
+ * still meets the player token and the arrowhead cleanly.
+ */
+export function squigglePoints(points: Point[], amplitude = 4, wavelength = 16): Point[] {
+  const total = pathLength(points)
+  if (points.length < 2 || total < wavelength) return points
+
+  const STEP = 3 // court units between resampled points — smooth enough at any zoom
+  const count = Math.max(2, Math.round(total / STEP))
+  const out: Point[] = []
+
+  for (let i = 0; i <= count; i++) {
+    const dist = (total * i) / count
+    const here = pointAtFraction(points, dist / total)
+    // Tangent from a short lookahead/lookbehind, so the normal follows curves.
+    const ahead = pointAtFraction(points, Math.min(dist + STEP, total) / total)
+    const behind = pointAtFraction(points, Math.max(dist - STEP, 0) / total)
+    const tx = ahead.x - behind.x
+    const ty = ahead.y - behind.y
+    const len = Math.hypot(tx, ty) || 1
+
+    // Taper the amplitude near both ends of the stroke.
+    const fade = Math.min(1, dist / wavelength, (total - dist) / wavelength)
+    const offset = Math.sin((dist / wavelength) * Math.PI * 2) * amplitude * fade
+
+    out.push({ x: here.x + (-ty / len) * offset, y: here.y + (tx / len) * offset })
+  }
+  return out
+}
+
 /** The point a player's NEXT drawn segment should start from — the end of their last segment, or their court position if they have none yet. */
 export function routeEndPoint(route: PlayerRoute | undefined, fallback: Point): Point {
   if (!route || route.segments.length === 0) return fallback

@@ -1,13 +1,12 @@
 import { useEffect, useState } from 'react'
 import { Play } from '../types'
-import { localPlayStore } from '../lib/storage'
-
-const MAX_PLAYS = 100
+import { MAX_PLAYS, localPlayStore } from '../lib/storage'
 
 interface Props {
   playName: string
   setPlayName: (name: string) => void
-  onSave: (name: string) => Play
+  /** Persists the play and marks it clean. Throws if the write fails. */
+  onSave: (name: string) => void
   onLoad: (play: Play) => void
   onNew: () => void
 }
@@ -24,13 +23,10 @@ export default function PlaysLibrary({ playName, setPlayName, onSave, onLoad, on
 
   function handleSave() {
     setError(null)
-    if (plays.length >= MAX_PLAYS && !plays.some((p) => p.name === playName)) {
-      setError(`You've hit the ${MAX_PLAYS}-play limit. Delete an old play to save a new one.`)
-      return
-    }
+    // The cap lives in the store, so both save buttons hit it; it reports by
+    // throwing, which the catch below surfaces.
     try {
-      const snapshot = onSave(playName)
-      localPlayStore.save(snapshot)
+      onSave(playName)
       refresh()
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to save.')

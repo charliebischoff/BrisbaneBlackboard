@@ -4,8 +4,13 @@
  * - pass: the ball moving between two players (dotted line, arrowhead)
  * - dribble: player moving WITH the ball (double line, arrowhead)
  * - screen: player setting a pick (solid line, flat T-cap instead of arrowhead)
+ *
+ * The last two are only produced by drag mode, where the style is inferred from
+ * possession rather than picked by the coach:
+ * - carry: player moving while holding the ball (squiggly line, arrowhead)
+ * - balltransfer: the ball's own path from one player to another (dashed line, arrowhead)
  */
-export type LineType = 'motion' | 'pass' | 'dribble' | 'screen'
+export type LineType = 'motion' | 'pass' | 'dribble' | 'screen' | 'carry' | 'balltransfer'
 
 export interface Point {
   x: number
@@ -54,6 +59,17 @@ export interface PlayerRoute {
   segments: RouteSegment[]
 }
 
+/**
+ * One throw of the ball from one player to another, drawn in drag mode by
+ * dragging the ball itself. Deliberately NOT a segment on the passer's route —
+ * routes are movement-only, and anything in a route animates the *player*.
+ */
+export interface BallTransfer {
+  fromId: string
+  toId: string
+  points: Point[]
+}
+
 export type CourtType = 'full' | 'half'
 
 export interface Play {
@@ -66,6 +82,10 @@ export interface Play {
   courtType: CourtType
   /** who has the ball at the start of the play, for the possession highlight */
   ballHolderId: string | null
+  /** ball centre relative to its carrier's centre. Optional — plays saved before drag mode existed have none. */
+  ballOffset?: Point
+  /** ordered ball throws, drag mode only. Optional for the same reason. */
+  ballTransfers?: BallTransfer[]
   /** true if every route has zero segments — i.e. just a formation */
   isFormationOnly: boolean
 }

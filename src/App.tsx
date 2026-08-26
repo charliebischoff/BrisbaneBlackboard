@@ -28,7 +28,7 @@ export default function App() {
         <PlaysLibrary
           playName={editor.playName}
           setPlayName={editor.setPlayName}
-          onSave={editor.toPlaySnapshot}
+          onSave={editor.savePlay}
           onLoad={editor.loadPlay}
           onNew={editor.newPlay}
         />

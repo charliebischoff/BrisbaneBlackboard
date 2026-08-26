@@ -3,6 +3,7 @@ import Konva from 'konva'
 import { Player } from '../types'
 import { EditorMode } from '../hooks/usePlayEditor'
 import { useHTMLImage } from '../hooks/useHTMLImage'
+import { BALL_COLOR, PLAYER_TOKEN_RADIUS } from '../lib/court'
 
 interface Props {
   player: Player
@@ -31,7 +32,7 @@ export default function PlayerToken({
   onDragStateChange,
   onDrawStart,
 }: Props) {
-  const radius = 17
+  const radius = PLAYER_TOKEN_RADIUS
   const isPositionMode = mode === 'position'
   const photo = useHTMLImage(player.photoUrl)
 
@@ -56,7 +57,8 @@ export default function PlayerToken({
       onMouseDown={handlePointerDown}
       onTouchStart={handlePointerDown}
     >
-      {hasBall && <Circle radius={radius + 8} stroke="#e0a458" strokeWidth={2.5} />}
+      {/* Drag mode draws a real ball, so the stand-in possession ring is redundant there. */}
+      {hasBall && mode !== 'drag' && <Circle radius={radius + 8} stroke={BALL_COLOR} strokeWidth={2.5} />}
       {isSelected && <Circle radius={radius + 4} stroke="#f5efe0" strokeWidth={2} dash={[3, 3]} />}
 
       {photo ? (

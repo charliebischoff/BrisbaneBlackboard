@@ -1,7 +1,13 @@
 import { Fragment } from 'react'
 import { Line } from 'react-konva'
 import { RouteSegment } from '../types'
-import { toKonvaPoints, offsetPolyline, screenCapPoints, arrowHeadPoints } from '../lib/routeGeometry'
+import {
+  toKonvaPoints,
+  offsetPolyline,
+  screenCapPoints,
+  arrowHeadPoints,
+  squigglePoints,
+} from '../lib/routeGeometry'
 
 interface Props {
   segments: RouteSegment[]
@@ -10,6 +16,7 @@ interface Props {
 
 const DRIBBLE_OFFSET = 2.5
 const PASS_DASH = [2, 7] // small dots
+const TRANSFER_DASH = [9, 6] // longer dashes — the ball travelling, drag mode
 const STROKE_WIDTH = 3
 
 export default function RouteLine({ segments, color }: Props) {
@@ -50,6 +57,36 @@ export default function RouteLine({ segments, color }: Props) {
                   strokeWidth={STROKE_WIDTH}
                   lineCap="round"
                   dash={PASS_DASH}
+                />
+                <Line points={arrowHeadPoints(segment.points)} closed fill={color} stroke={color} />
+              </Fragment>
+            )
+
+          case 'carry':
+            return (
+              <Fragment key={i}>
+                <Line
+                  points={toKonvaPoints(squigglePoints(segment.points))}
+                  stroke={color}
+                  strokeWidth={STROKE_WIDTH}
+                  lineCap="round"
+                  lineJoin="round"
+                />
+                {/* Arrowhead from the original path, so it points along the real
+                    direction of travel rather than whichever way the wave was going. */}
+                <Line points={arrowHeadPoints(segment.points)} closed fill={color} stroke={color} />
+              </Fragment>
+            )
+
+          case 'balltransfer':
+            return (
+              <Fragment key={i}>
+                <Line
+                  points={flat}
+                  stroke={color}
+                  strokeWidth={STROKE_WIDTH}
+                  lineCap="round"
+                  dash={TRANSFER_DASH}
                 />
                 <Line points={arrowHeadPoints(segment.points)} closed fill={color} stroke={color} />
               </Fragment>
