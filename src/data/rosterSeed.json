@@ -12,6 +12,6 @@
   { "id": "rio-bruton", "name": "Rio Bruton", "number": 13, "position": "G", "photo": "/players/rio-bruton.png" },
   { "id": "sam-mcdaniel", "name": "Sam McDaniel", "number": 26, "position": "G", "photo": "/players/sam-mcdaniel.png" },
   { "id": "taine-murray", "name": "Taine Murray", "number": 0, "position": "G", "photo": "/players/taine-murray.png" },
-  { "id": "tyrell-harrison", "name": "Tyrell Harrison", "number": 24, "position": "FC", "photo": "/players/tyrell-harrison.png" }
+  { "id": "tyrell-harrison", "name": "Tyrell Harrison", "number": 24, "position": "FC", "photo": "/players/tyrell-harrison.png" },
   { "id": "archie-woodhill", "name": "Archie Woodhill", "number": 6, "position": "FC", "photo": "/players/archie-woodhill.png" }
 ]
