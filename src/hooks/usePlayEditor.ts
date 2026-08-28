@@ -69,10 +69,32 @@ const DEFAULT_SPOTS: Record<CourtType, Point[]> = {
   ],
 }
 
+/**
+ * Your five default starters, by roster id (see src/data/rosterSeed.json).
+ * Listed order maps 1:1 onto DEFAULT_SPOTS for each court type above.
+ */
+const DEFAULT_STARTER_IDS = [
+  'arnas-velicka',
+  'tyrell-harrison',
+  'harry-rouhliadeff',
+  'nate-hinton',
+  'sam-mcdaniel',
+]
+
 function buildDefaultPlayers(courtType: CourtType): Player[] {
   const roster = rosterStore.getAll()
   const spots = DEFAULT_SPOTS[courtType]
-  return roster.slice(0, MAX_OFFENSE_ON_COURT).map((rp, i) => ({
+
+  const starters = DEFAULT_STARTER_IDS
+    .map((id) => roster.find((rp) => rp.id === id))
+    .filter((rp): rp is RosterPlayer => rp != null)
+  // If a starter's id doesn't match anyone on the current roster (renamed,
+  // deleted, roster reset with different ids), fill the gap from the rest
+  // of the roster rather than quietly starting fewer than 5 players.
+  const fallback = roster.filter((rp) => !starters.includes(rp))
+  const selected = [...starters, ...fallback].slice(0, MAX_OFFENSE_ON_COURT)
+
+  return selected.map((rp, i) => ({
     id: rp.id,
     number: rp.number ?? 0,
     team: 'offense' as const,
