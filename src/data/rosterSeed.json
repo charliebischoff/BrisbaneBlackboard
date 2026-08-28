@@ -5,7 +5,7 @@
   { "id": "jacob-holt", "name": "Jacob Holt", "number": 15, "position": "F", "photo": "/players/jacob-holt.png" },
   { "id": "jaylin-williams", "name": "Jaylin Williams", "number": 2, "position": "", "photo": "/players/jaylin-williams.png" },
   { "id": "joshua-duach", "name": "Joshua Duach", "number": 5, "position": "", "photo": "/players/joshua-duach.png" },
-  { "id": "lat-mayen", "name": "Lat Mayen", "number": null, "position": "G", "photo": "/players/lat-mayen.png" },
+  { "id": "lat-mayen", "name": "Lat Mayen", "number": 11, "position": "G", "photo": "/players/lat-mayen.png" },
   { "id": "max-mackinnon", "name": "Max Mackinnon", "number": 3, "position": "", "photo": "/players/max-mackinnon.png" },
   { "id": "mitch-norton", "name": "Mitch Norton", "number": 8, "position": "G", "isCaptain": true, "photo": "/players/mitch-norton.png" },
   { "id": "nate-hinton", "name": "Nate Hinton", "number": 4, "position": "G", "photo": "/players/nate-hinton.png" },
@@ -13,4 +13,5 @@
   { "id": "sam-mcdaniel", "name": "Sam McDaniel", "number": 26, "position": "G", "photo": "/players/sam-mcdaniel.png" },
   { "id": "taine-murray", "name": "Taine Murray", "number": 0, "position": "G", "photo": "/players/taine-murray.png" },
   { "id": "tyrell-harrison", "name": "Tyrell Harrison", "number": 24, "position": "FC", "photo": "/players/tyrell-harrison.png" }
+  { "id": "archie-woodhill", "name": "Archie Woodhill", "number": 6, "position": "FC", "photo": "/players/archie-woodhill.png" }
 ]
