@@ -37,7 +37,7 @@ export default function PlayerToken({
   // Full court is a much wider coordinate space than half court, so it gets
   // scaled down more to fit the screen — bump token size to compensate, or
   // players read as too small to see at a glance.
-  const sizeScale = courtType === 'full' ? 1.40 : 1
+  const sizeScale = courtType === 'full' ? 1.50 : 1
   const radius = PLAYER_TOKEN_RADIUS * sizeScale
   const isPositionMode = mode === 'position'
   const photo = useHTMLImage(player.photoUrl)
