@@ -19,6 +19,7 @@ export default function RosterManager({ onCourtIds, onAddToCourt, onRemoveFromCo
   const [error, setError] = useState<string | null>(null)
   const [isOpen, setIsOpen] = useState(false)
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null)
+  const [confirmReset, setConfirmReset] = useState(false)
 
   function refresh() {
     setRoster(rosterStore.getAll())
@@ -73,6 +74,14 @@ export default function RosterManager({ onCourtIds, onAddToCourt, onRemoveFromCo
     refresh()
   }
 
+  function handleReset() {
+    rosterStore.resetToSeed()
+    setConfirmReset(false)
+    cancelEdit()
+    setConfirmDeleteId(null)
+    refresh()
+  }
+
   return (
     <div className="flex flex-col gap-3 p-4 bg-ink-800 rounded-lg text-court-line font-body">
       <button
@@ -85,6 +94,33 @@ export default function RosterManager({ onCourtIds, onAddToCourt, onRemoveFromCo
 
       {isOpen && (
         <>
+          {confirmReset ? (
+            <div className="flex items-center gap-2 text-xs bg-ink-700/60 rounded-md px-2 py-1.5">
+              <span className="text-team-defense flex-1">
+                Restores the original 14 — any edits or additions since are lost.
+              </span>
+              <button
+                className="px-2 py-1 rounded bg-team-defense text-white"
+                onClick={handleReset}
+              >
+                Reset
+              </button>
+              <button
+                className="px-2 py-1 rounded bg-ink-700 text-court-line/80"
+                onClick={() => setConfirmReset(false)}
+              >
+                Cancel
+              </button>
+            </div>
+          ) : (
+            <button
+              className="text-xs text-court-line/40 underline text-left"
+              onClick={() => setConfirmReset(true)}
+            >
+              Restore original squad (undoes accidental deletes)
+            </button>
+          )}
+
           <div className="flex flex-col gap-1 max-h-72 overflow-y-auto">
             {roster.map((player) => {
               const isOnCourt = onCourtIds.includes(player.id)
