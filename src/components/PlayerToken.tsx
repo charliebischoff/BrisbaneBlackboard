@@ -1,6 +1,6 @@
 import { Group, Circle, Text, Image as KonvaImage } from 'react-konva'
 import Konva from 'konva'
-import { Player } from '../types'
+import { CourtType, Player } from '../types'
 import { EditorMode } from '../hooks/usePlayEditor'
 import { useHTMLImage } from '../hooks/useHTMLImage'
 import { BALL_COLOR, PLAYER_TOKEN_RADIUS } from '../lib/court'
@@ -10,6 +10,7 @@ interface Props {
   isSelected: boolean
   hasBall: boolean
   mode: EditorMode
+  courtType: CourtType
   onSelect: (id: string) => void
   onMove: (id: string, x: number, y: number) => void
   onDragStateChange: (dragging: boolean) => void
@@ -27,12 +28,17 @@ export default function PlayerToken({
   isSelected,
   hasBall,
   mode,
+  courtType,
   onSelect,
   onMove,
   onDragStateChange,
   onDrawStart,
 }: Props) {
-  const radius = PLAYER_TOKEN_RADIUS
+  // Full court is a much wider coordinate space than half court, so it gets
+  // scaled down more to fit the screen — bump token size to compensate, or
+  // players read as too small to see at a glance.
+  const sizeScale = courtType === 'full' ? 1.35 : 1
+  const radius = PLAYER_TOKEN_RADIUS * sizeScale
   const isPositionMode = mode === 'position'
   const photo = useHTMLImage(player.photoUrl)
 
@@ -75,16 +81,16 @@ export default function PlayerToken({
 
       {/* Number badge — bottom-right of the token, always visible even with a photo */}
       <Group x={radius * 0.68} y={radius * 0.68}>
-        <Circle radius={9} fill={TEAM_COLOR[player.team]} stroke="#f5efe0" strokeWidth={1.5} />
+        <Circle radius={9 * sizeScale} fill={TEAM_COLOR[player.team]} stroke="#f5efe0" strokeWidth={1.5} />
         <Text
           text={player.number > 0 ? String(player.number) : '?'}
-          fontSize={10}
+          fontSize={10 * sizeScale}
           fontStyle="bold"
           fill="#f5efe0"
-          width={18}
-          height={18}
-          offsetX={9}
-          offsetY={9}
+          width={18 * sizeScale}
+          height={18 * sizeScale}
+          offsetX={9 * sizeScale}
+          offsetY={9 * sizeScale}
           align="center"
           verticalAlign="middle"
           listening={false}
@@ -94,11 +100,11 @@ export default function PlayerToken({
       {player.name && (
         <Text
           text={player.name.split(' ').slice(-1)[0]}
-          fontSize={10}
+          fontSize={10 * sizeScale}
           fontStyle="500"
           fill="#f5efe0"
-          width={90}
-          offsetX={45}
+          width={90 * sizeScale}
+          offsetX={45 * sizeScale}
           y={radius + 6}
           align="center"
           listening={false}
