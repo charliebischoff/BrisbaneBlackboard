@@ -11,7 +11,7 @@ import {
   RosterPlayer,
   RouteSegment,
 } from '../types'
-import { flattenRoute, pathLength, pointAtFraction, routeEndPoint } from '../lib/routeGeometry'
+import { pathLength, pointAtFraction, routeEndPoint } from '../lib/routeGeometry'
 import { rosterStore } from '../lib/rosterStore'
 import { localPlayStore } from '../lib/storage'
 import { BALL_MIN_GAP, COURT_DIMENSIONS } from '../lib/court'
@@ -83,9 +83,51 @@ function buildDefaultPlayers(courtType: CourtType): Player[] {
   }))
 }
 
+/** Playback pacing. Each action gets a slice of the clock proportional to its path length. */
+const MIN_ACTION_WEIGHT = 40 // court units — floor, so a tiny stroke still gets a readable slice
+const SECONDS_PER_ACTION = 1.2
+const MIN_DURATION_SECONDS = 3.5
+const MAX_DURATION_SECONDS = 12
+
 interface DrawGesture {
   playerId: string
   points: Point[]
+}
+
+/**
+ * Stamps a global authoring order onto a play loaded from storage.
+ *
+ * Plays written before sequencing existed have no `seq` at all; the best
+ * available guess at their order is the order things sit in the arrays. Doing it
+ * here, at the load boundary, keeps playback free of any legacy branch.
+ * Returns the next free counter value alongside the normalized data.
+ *
+ * Ball throws are straightened here too: plays written before `endBallDrag` began
+ * committing a straight line still carry the raw drag stroke, which playback has
+ * never followed. First and last point preserve the throw's real direction; the
+ * exact endpoints of an old throw aren't recoverable (`ballOffset` describes only
+ * the final holder), so nothing is invented beyond dropping the curve.
+ */
+function normalizeSequence(
+  routes: PlayerRoute[],
+  transfers: BallTransfer[],
+): { routes: PlayerRoute[]; transfers: BallTransfer[]; nextSeq: number } {
+  let counter = 0
+  const stamp = (seq: number | undefined): number => {
+    const value = typeof seq === 'number' ? seq : counter
+    counter = Math.max(counter, value) + 1
+    return value
+  }
+  const nextRoutes = routes.map((r) => ({
+    ...r,
+    segments: r.segments.map((s) => ({ ...s, seq: stamp(s.seq) })),
+  }))
+  const nextTransfers = transfers.map((t) => ({
+    ...t,
+    seq: stamp(t.seq),
+    points: t.points.length > 2 ? [t.points[0], t.points[t.points.length - 1]] : t.points,
+  }))
+  return { routes: nextRoutes, transfers: nextTransfers, nextSeq: counter }
 }
 
 export function usePlayEditor() {
@@ -116,6 +158,14 @@ export function usePlayEditor() {
   const [playbackT, setPlaybackT] = useState(0)
   const rafRef = useRef<number | null>(null)
   const lastTsRef = useRef<number | null>(null)
+
+  /**
+   * Global authoring order, shared by route segments and ball transfers. Rebased
+   * (not reset) when a play is loaded — a counter restarting at 0 would slot
+   * newly drawn actions into the middle of a loaded play's sequence.
+   */
+  const seqRef = useRef(0)
+  const nextSeq = useCallback(() => seqRef.current++, [])
 
   const selectPlayer = useCallback((id: string) => {
     setSelectedPlayerId((current) => (current === id ? null : id))
@@ -153,6 +203,7 @@ export function usePlayEditor() {
     setRoutes([])
     // Ball geometry was drawn against a court that no longer applies, same as routes.
     setBallTransfers([])
+    seqRef.current = 0
     setBallOffset(DEFAULT_BALL_OFFSET)
     setBallGesture(null)
     setBallHint(null)
@@ -234,6 +285,9 @@ export function usePlayEditor() {
   const startBallDrag = useCallback(
     (x: number, y: number) => {
       if (mode !== 'drag') return
+      // Editing and the playback clock don't mix — drop back to the resting board.
+      stopPlaybackRef.current()
+      setPlaybackT(0)
       setBallHint(null)
       setBallGesture([{ x, y }])
     },
@@ -283,12 +337,26 @@ export function usePlayEditor() {
 
     const fromId = ballHolderId
     if (fromId) {
-      setBallTransfers((prev) => [...prev, { fromId, toId: closest!.id, points }])
+      // The drag is a pointing device, not a flight path — what's kept is the straight
+      // line from where the ball was to where it lands, however loopy the stroke was.
+      // These are the same two spots `ballPosition` interpolates between during
+      // playback, so the drawn arrow and the flying ball share one geometry. Storing
+      // the raw stroke would paint a path the ball never follows.
+      // Tail comes from where the ball *is*, not from `points[0]` — that's the raw
+      // press position, so grabbing the token off-centre would skew the arrow.
+      const origin = restingPositions.get(fromId) ?? { x: 0, y: 0 }
+      const straight: Point[] = [
+        { x: origin.x + ballOffset.x, y: origin.y + ballOffset.y },
+        { x: closest.pos.x + dx, y: closest.pos.y + dy },
+      ]
+      // Taken outside the updater — those run twice under StrictMode.
+      const seq = nextSeq()
+      setBallTransfers((prev) => [...prev, { fromId, toId: closest!.id, points: straight, seq }])
     }
     setBallHolderId(closest.id)
     setBallOffset({ x: dx, y: dy })
     setBallHint(null)
-  }, [ballGesture, players, ballHolderId, restingPositions])
+  }, [ballGesture, players, ballHolderId, ballOffset, restingPositions, nextSeq])
 
   const dismissBallHint = useCallback(() => setBallHint(null), [])
 
@@ -315,6 +383,10 @@ export function usePlayEditor() {
       if (mode !== 'draw' && mode !== 'drag') return
       const player = players.find((p) => p.id === playerId)
       if (!player) return
+      // Same as the ball: a press means "edit", so the clock goes back to rest
+      // rather than leaving the token rendered at a playback position.
+      stopPlaybackRef.current()
+      setPlaybackT(0)
       const route = routes.find((r) => r.playerId === playerId)
       const start = routeEndPoint(route, { x: player.x, y: player.y })
       setDrawGesture({ playerId, points: [start] })
@@ -348,7 +420,7 @@ export function usePlayEditor() {
     const segmentType: LineType =
       mode === 'drag' ? (ballHolderId === gesture.playerId ? 'carry' : 'motion') : lineType
 
-    const newSegment: RouteSegment = { type: segmentType, points: gesture.points }
+    const newSegment: RouteSegment = { type: segmentType, points: gesture.points, seq: nextSeq() }
     setRoutes((prev) => {
       const existing = prev.find((r) => r.playerId === gesture.playerId)
       if (!existing) return [...prev, { playerId: gesture.playerId, segments: [newSegment] }]
@@ -376,7 +448,7 @@ export function usePlayEditor() {
       }
       if (closest) setBallHolderId(closest.id)
     }
-  }, [drawGesture, lineType, players, routes, mode, ballHolderId])
+  }, [drawGesture, lineType, players, routes, mode, ballHolderId, nextSeq])
 
   const clearRoute = useCallback((playerId: string) => {
     setRoutes((prev) => prev.filter((r) => r.playerId !== playerId))
@@ -385,9 +457,109 @@ export function usePlayEditor() {
   const clearAllRoutes = useCallback(() => {
     setRoutes([])
     setBallTransfers([])
+    seqRef.current = 0
   }, [])
 
   // --- Playback -----------------------------------------------------
+
+  /**
+   * The play as an ordered schedule: every drawn action — player strokes and ball
+   * throws alike — in the order the coach authored it, each occupying its own
+   * window of the 0→1 clock. Actions never overlap; a play is a chain of one
+   * thing after another, which is what makes "A cuts, A passes, B cuts" read
+   * correctly instead of happening all at once.
+   *
+   * Window length is proportional to path length (floored, so a flick of a stroke
+   * doesn't flash past), so a long cut takes longer than a short one.
+   */
+  const timeline = useMemo(() => {
+    type Event = {
+      seq: number
+      kind: 'move' | 'transfer'
+      playerId?: string
+      fromId?: string
+      toId?: string
+      points: Point[]
+      weight: number
+      tStart: number
+      tEnd: number
+    }
+
+    const events: Event[] = []
+    for (const route of routes) {
+      for (const segment of route.segments) {
+        events.push({
+          seq: segment.seq,
+          kind: 'move',
+          playerId: route.playerId,
+          points: segment.points,
+          weight: Math.max(pathLength(segment.points), MIN_ACTION_WEIGHT),
+          tStart: 0,
+          tEnd: 0,
+        })
+      }
+    }
+    for (const transfer of ballTransfers) {
+      events.push({
+        seq: transfer.seq,
+        kind: 'transfer',
+        fromId: transfer.fromId,
+        toId: transfer.toId,
+        points: transfer.points,
+        weight: Math.max(pathLength(transfer.points), MIN_ACTION_WEIGHT),
+        tStart: 0,
+        tEnd: 0,
+      })
+    }
+
+    events.sort((a, b) => a.seq - b.seq)
+
+    const total = events.reduce((sum, e) => sum + e.weight, 0)
+    let running = 0
+    for (const e of events) {
+      e.tStart = total > 0 ? running / total : 0
+      running += e.weight
+      e.tEnd = total > 0 ? running / total : 1
+    }
+    return events
+  }, [routes, ballTransfers])
+
+  /**
+   * Where each player is at time t, by their own actions only: inside an active
+   * window they travel along that one stroke; outside it they stand still — at
+   * the end of their last finished action, or at their start spot before their
+   * first one.
+   */
+  const playerPositionsAt = useCallback(
+    (t: number): Map<string, Point> => {
+      const map = new Map<string, Point>()
+      for (const event of timeline) {
+        if (event.kind !== 'move' || !event.playerId) continue
+        if (t <= event.tStart) continue
+        if (t >= event.tEnd) {
+          map.set(event.playerId, event.points[event.points.length - 1])
+          continue
+        }
+        const span = event.tEnd - event.tStart
+        const localT = span > 0 ? (t - event.tStart) / span : 1
+        map.set(event.playerId, pointAtFraction(event.points, localT))
+      }
+      return map
+    },
+    [timeline],
+  )
+
+  /** Seconds for the whole play at 1x — grows with how much there is to watch. */
+  const durationSeconds = useMemo(
+    () =>
+      Math.min(
+        MAX_DURATION_SECONDS,
+        Math.max(MIN_DURATION_SECONDS, SECONDS_PER_ACTION * timeline.length),
+      ),
+    [timeline],
+  )
+  const durationRef = useRef(durationSeconds)
+  durationRef.current = durationSeconds
 
   const stopPlayback = useCallback(() => {
     setIsPlaying(false)
@@ -404,8 +576,8 @@ export function usePlayEditor() {
       lastTsRef.current = ts
 
       setPlaybackT((prev) => {
-        const DURATION_SECONDS = 3.5 // full route, at 1x speed
-        const next = prev + (dt * speed) / DURATION_SECONDS
+        // Read through a ref so a mid-play edit can't stale-close the clock.
+        const next = prev + (dt * speed) / durationRef.current
         if (next >= 1) {
           stopPlayback()
           return 1
@@ -436,14 +608,12 @@ export function usePlayEditor() {
   /** Player positions to render right now — animated if a route exists and playback has progressed, static otherwise. */
   const displayPlayers = useMemo(() => {
     if (playbackT === 0) return players
+    const at = playerPositionsAt(playbackT)
     return players.map((p) => {
-      const route = routes.find((r) => r.playerId === p.id)
-      if (!route || route.segments.length === 0) return p
-      const flat = flattenRoute({ x: p.x, y: p.y }, route.segments)
-      const pos = pointAtFraction(flat, playbackT)
-      return { ...p, x: pos.x, y: pos.y }
+      const pos = at.get(p.id)
+      return pos ? { ...p, x: pos.x, y: pos.y } : p
     })
-  }, [players, routes, playbackT])
+  }, [players, playerPositionsAt, playbackT])
 
   /**
    * What the court actually renders. Same as displayPlayers except at rest in
@@ -451,12 +621,17 @@ export function usePlayEditor() {
    * makes dragging look like the player moved.
    */
   const renderPlayers = useMemo(() => {
-    if (playbackT !== 0 || mode !== 'drag') return displayPlayers
+    if (mode !== 'drag') return displayPlayers
+    // A live gesture wins over the clock: pressing a token resets playback to 0
+    // anyway, but rendering the tip unconditionally means the token never lags a
+    // frame behind that reset.
+    const dragging = drawGesture && drawGesture.points.length > 0 ? drawGesture : null
+    if (playbackT !== 0 && !dragging) return displayPlayers
     return players.map((p) => {
       // Mid-drag the gesture hasn't been committed to a route yet, so follow its
       // tip directly — that's what makes the player appear to move with the cursor.
-      if (drawGesture?.playerId === p.id && drawGesture.points.length > 0) {
-        const tip = drawGesture.points[drawGesture.points.length - 1]
+      if (dragging?.playerId === p.id) {
+        const tip = dragging.points[dragging.points.length - 1]
         return { ...p, x: tip.x, y: tip.y }
       }
       const pos = restingPositions.get(p.id)
@@ -469,10 +644,9 @@ export function usePlayEditor() {
    * path of its own — so it stays glued to its carrier with zero drift, and
    * playback needs no second animation engine.
    *
-   * Transfers carry no authored timing (the editor has no per-player clock), so
-   * the N throws are spread evenly across the play at t = (k+1)/(N+1), in the
-   * order they were drawn. Each throw occupies a short window around its point,
-   * during which the ball lerps between the two players' live positions.
+   * Each throw has an authored window on the timeline, same as every other
+   * action. Inside it the ball lerps between the two players' live positions;
+   * outside it the ball is simply held by whoever owns it at that moment.
    */
   const ballPosition = useMemo<Point | null>(() => {
     const byId = new Map(renderPlayers.map((p) => [p.id, p]))
@@ -485,8 +659,24 @@ export function usePlayEditor() {
       return pos ? { x: pos.x + ballOffset.x, y: pos.y + ballOffset.y } : null
     }
 
-    const n = ballTransfers.length
-    if (n === 0) return held(ballHolderId)
+    /**
+     * Where the ball attaches to one end of a throw. `ballOffset` is a single
+     * global value — the offset from the *last* drop — so using it for every
+     * carrier puts earlier throws in the wrong place. Each transfer's own stored
+     * line already records both attachment points, so read the offset back off it,
+     * relative to that player's resting spot, and hang it on their live position.
+     */
+    const onThrow = (id: string, points: Point[], end: 0 | 1): Point | null => {
+      const pos = at(id)
+      if (!pos) return null
+      const anchor = points.length > 1 ? points[end === 0 ? 0 : points.length - 1] : null
+      const rest = restingPositions.get(id)
+      if (!anchor || !rest) return { x: pos.x + ballOffset.x, y: pos.y + ballOffset.y }
+      return { x: pos.x + (anchor.x - rest.x), y: pos.y + (anchor.y - rest.y) }
+    }
+
+    const throws = timeline.filter((e) => e.kind === 'transfer')
+    if (throws.length === 0) return held(ballHolderId)
 
     // At rest the court shows the *end* state — players stand at the end of
     // their routes, so the ball sits with whoever ended up holding it, exactly
@@ -494,23 +684,27 @@ export function usePlayEditor() {
     // playback is running.
     if (playbackT === 0) return held(ballHolderId)
 
-    const spacing = 1 / (n + 1)
-    const flightLength = spacing * 0.5
-
-    for (let k = 0; k < n; k++) {
-      const start = (k + 1) * spacing
-      const transfer = ballTransfers[k]
-      if (playbackT < start) return held(k === 0 ? transfer.fromId : ballTransfers[k - 1].toId)
-      if (playbackT < start + flightLength) {
-        const from = held(transfer.fromId)
-        const to = held(transfer.toId)
+    for (let k = 0; k < throws.length; k++) {
+      const t = throws[k]
+      // Waiting to be thrown: sit on the tail of this throw, or on the head of the
+      // previous one, so entering a flight never makes the ball jump.
+      if (playbackT < t.tStart) {
+        return k === 0
+          ? onThrow(t.fromId!, t.points, 0)
+          : onThrow(throws[k - 1].toId!, throws[k - 1].points, 1)
+      }
+      if (playbackT < t.tEnd) {
+        const from = onThrow(t.fromId!, t.points, 0)
+        const to = onThrow(t.toId!, t.points, 1)
         if (!from || !to) return from ?? to
-        const f = (playbackT - start) / flightLength
+        const span = t.tEnd - t.tStart
+        const f = span > 0 ? (playbackT - t.tStart) / span : 1
         return { x: from.x + (to.x - from.x) * f, y: from.y + (to.y - from.y) * f }
       }
     }
-    return held(ballTransfers[n - 1].toId)
-  }, [renderPlayers, ballTransfers, ballHolderId, ballOffset, playbackT])
+    const last = throws[throws.length - 1]
+    return onThrow(last.toId!, last.points, 1)
+  }, [renderPlayers, timeline, ballHolderId, ballOffset, restingPositions, playbackT])
 
   // --- Save / load ----------------------------------------------------
 
@@ -584,11 +778,16 @@ export function usePlayEditor() {
       setPlayName(play.name)
       setCourtTypeRaw(play.courtType ?? 'half')
       setPlayers(play.players)
-      setRoutes(play.routes)
+      // Plays written before sequencing carry no order; stamp one from array order
+      // here, and rebase the counter so newly drawn actions land after, not among,
+      // what was loaded.
+      const seq = normalizeSequence(play.routes, play.ballTransfers ?? [])
+      seqRef.current = seq.nextSeq
+      setRoutes(seq.routes)
       setBallHolderId(play.ballHolderId ?? play.players[0]?.id ?? null)
       // Both optional — plays saved before drag mode existed simply have none.
       setBallOffset(play.ballOffset ?? DEFAULT_BALL_OFFSET)
-      setBallTransfers(play.ballTransfers ?? [])
+      setBallTransfers(seq.transfers)
       setBallGesture(null)
       setBallHint(null)
       setSelectedPlayerId(null)
@@ -601,10 +800,10 @@ export function usePlayEditor() {
         playSignatureOf({
           courtType: play.courtType ?? 'half',
           players: play.players,
-          routes: play.routes,
+          routes: seq.routes,
           ballHolderId: play.ballHolderId ?? play.players[0]?.id ?? null,
           ballOffset: play.ballOffset ?? DEFAULT_BALL_OFFSET,
-          ballTransfers: play.ballTransfers ?? [],
+          ballTransfers: seq.transfers,
         }),
       )
     },
@@ -620,6 +819,7 @@ export function usePlayEditor() {
     setPlayName('Untitled Play')
     setPlayers(fresh)
     setRoutes([])
+    seqRef.current = 0
     setBallHolderId(fresh[0]?.id ?? null)
     setBallOffset(DEFAULT_BALL_OFFSET)
     setBallTransfers([])

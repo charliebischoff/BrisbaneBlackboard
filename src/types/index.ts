@@ -26,6 +26,12 @@ export interface Point {
 export interface RouteSegment {
   type: LineType
   points: Point[]
+  /**
+   * Position in the play's global authoring order — shared with BallTransfer.seq,
+   * since a pass has to be orderable against a move. Only relative order matters;
+   * gaps are fine. Playback runs actions one after another in this order.
+   */
+  seq: number
 }
 
 export interface Player {
@@ -68,6 +74,8 @@ export interface BallTransfer {
   fromId: string
   toId: string
   points: Point[]
+  /** Same global authoring order as RouteSegment.seq — see there. */
+  seq: number
 }
 
 export type CourtType = 'full' | 'half'

@@ -10,7 +10,12 @@ import {
 } from '../lib/routeGeometry'
 
 interface Props {
-  segments: RouteSegment[]
+  /**
+   * Drawing only cares about shape and style, never about when a segment happens —
+   * so `seq` is dropped, letting callers pass one-off shapes (a live gesture, a
+   * ball throw) that have no place in the play's authoring order.
+   */
+  segments: Omit<RouteSegment, 'seq'>[]
   color: string
 }
 
