@@ -18,6 +18,8 @@ export default function RosterManager({ onCourtIds, onAddToCourt, onRemoveFromCo
   const [editingId, setEditingId] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [isOpen, setIsOpen] = useState(false)
+  const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null)
+  const [confirmReset, setConfirmReset] = useState(false)
 
   function refresh() {
     setRoster(rosterStore.getAll())
@@ -68,6 +70,15 @@ export default function RosterManager({ onCourtIds, onAddToCourt, onRemoveFromCo
   function handleRemove(id: string) {
     if (onCourtIds.includes(id)) onRemoveFromCourt(id)
     rosterStore.remove(id)
+    setConfirmDeleteId(null)
+    refresh()
+  }
+
+  function handleReset() {
+    rosterStore.resetToSeed()
+    setConfirmReset(false)
+    cancelEdit()
+    setConfirmDeleteId(null)
     refresh()
   }
 
@@ -83,9 +94,37 @@ export default function RosterManager({ onCourtIds, onAddToCourt, onRemoveFromCo
 
       {isOpen && (
         <>
+          {confirmReset ? (
+            <div className="flex items-center gap-2 text-xs bg-ink-700/60 rounded-md px-2 py-1.5">
+              <span className="text-team-defense flex-1">
+                Restores the original 14 — any edits or additions since are lost.
+              </span>
+              <button
+                className="px-2 py-1 rounded bg-team-defense text-white"
+                onClick={handleReset}
+              >
+                Reset
+              </button>
+              <button
+                className="px-2 py-1 rounded bg-ink-700 text-court-line/80"
+                onClick={() => setConfirmReset(false)}
+              >
+                Cancel
+              </button>
+            </div>
+          ) : (
+            <button
+              className="text-xs text-court-line/40 underline text-left"
+              onClick={() => setConfirmReset(true)}
+            >
+              Restore original squad (undoes accidental deletes)
+            </button>
+          )}
+
           <div className="flex flex-col gap-1 max-h-72 overflow-y-auto">
             {roster.map((player) => {
               const isOnCourt = onCourtIds.includes(player.id)
+              const isConfirmingDelete = confirmDeleteId === player.id
               return (
                 <div key={player.id} className="flex items-center gap-2 bg-ink-700/60 rounded-md px-2 py-1.5">
                   {player.photo ? (
@@ -105,19 +144,45 @@ export default function RosterManager({ onCourtIds, onAddToCourt, onRemoveFromCo
                     {player.isCaptain && <span className="text-accent text-xs ml-1">(C)</span>}
                     <span className="text-court-line/40 text-xs ml-1">{player.position}</span>
                   </button>
-                  <button
-                    className={`text-xs px-2 py-1 rounded ${
-                      isOnCourt ? 'bg-team-offense/80 text-white' : 'bg-ink-700 text-court-line/60'
-                    } ${!isOnCourt && courtIsFull ? 'opacity-30' : ''}`}
-                    disabled={!isOnCourt && courtIsFull}
-                    onClick={() => (isOnCourt ? onRemoveFromCourt(player.id) : onAddToCourt(player))}
-                    title={!isOnCourt && courtIsFull ? 'Court has 5 offensive players — remove one first' : undefined}
-                  >
-                    {isOnCourt ? 'On court' : 'Add'}
-                  </button>
-                  <button className="text-xs text-court-line/40 hover:text-team-defense" onClick={() => handleRemove(player.id)}>
-                    ✕
-                  </button>
+                  {isConfirmingDelete ? (
+                    <div className="flex items-center gap-1.5 shrink-0">
+                      <span className="text-[10px] text-team-defense whitespace-nowrap">
+                        Deletes from roster
+                      </span>
+                      <button
+                        className="text-xs px-2 py-1 rounded bg-team-defense text-white"
+                        onClick={() => handleRemove(player.id)}
+                      >
+                        Delete
+                      </button>
+                      <button
+                        className="text-xs px-2 py-1 rounded bg-ink-700 text-court-line/80"
+                        onClick={() => setConfirmDeleteId(null)}
+                      >
+                        Cancel
+                      </button>
+                    </div>
+                  ) : (
+                    <>
+                      <button
+                        className={`text-xs px-2 py-1 rounded ${
+                          isOnCourt ? 'bg-team-offense/80 text-white' : 'bg-ink-700 text-court-line/60'
+                        } ${!isOnCourt && courtIsFull ? 'opacity-30' : ''}`}
+                        disabled={!isOnCourt && courtIsFull}
+                        onClick={() => (isOnCourt ? onRemoveFromCourt(player.id) : onAddToCourt(player))}
+                        title={!isOnCourt && courtIsFull ? 'Court has 5 offensive players — remove one first' : undefined}
+                      >
+                        {isOnCourt ? 'On court' : 'Add'}
+                      </button>
+                      <button
+                        className="text-xs text-court-line/40 hover:text-team-defense"
+                        onClick={() => setConfirmDeleteId(player.id)}
+                        title="Delete from roster"
+                      >
+                        ✕
+                      </button>
+                    </>
+                  )}
                 </div>
               )
             })}

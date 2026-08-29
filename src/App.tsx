@@ -9,7 +9,7 @@ export default function App() {
 
   return (
     <div className="h-screen w-screen bg-ink-900 flex flex-col md:flex-row overflow-hidden">
-      <main className="flex-1 min-h-0 p-3 md:p-6">
+      <main className="flex-1 min-h-0 min-w-0 p-3 md:p-6">
         <CourtEditor editor={editor} />
       </main>
 
