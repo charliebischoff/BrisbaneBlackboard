@@ -688,11 +688,19 @@ export function usePlayEditor() {
      * line already records both attachment points, so read the offset back off it,
      * relative to that player's resting spot, and hang it on their live position.
      */
-    const onThrow = (id: string, points: Point[], end: 0 | 1): Point | null => {
+    const onThrow = (id: string, points: Point[], end: 0 | 1, tAt: number): Point | null => {
       const pos = at(id)
       if (!pos) return null
       const anchor = points.length > 1 ? points[end === 0 ? 0 : points.length - 1] : null
-      const rest = restingPositions.get(id)
+      // The anchor is absolute, recorded against where the player stood *when the
+      // throw was drawn* — which is only the end of their whole route if they never
+      // drew anything afterwards. Reading it back against `restingPositions` (the
+      // end of everything) turns every later-drawn segment into ball drift, and a
+      // couple of cuts is enough to fling it off court. Rebase on the position the
+      // throw actually happened from: where the player is at the throw's own slot
+      // on the timeline.
+      const start = players.find((p) => p.id === id)
+      const rest = playerPositionsAt(tAt).get(id) ?? (start ? { x: start.x, y: start.y } : undefined)
       if (!anchor || !rest) return { x: pos.x + ballOffset.x, y: pos.y + ballOffset.y }
       return { x: pos.x + (anchor.x - rest.x), y: pos.y + (anchor.y - rest.y) }
     }
@@ -712,12 +720,12 @@ export function usePlayEditor() {
       // previous one, so entering a flight never makes the ball jump.
       if (playbackT < t.tStart) {
         return k === 0
-          ? onThrow(t.fromId!, t.points, 0)
-          : onThrow(throws[k - 1].toId!, throws[k - 1].points, 1)
+          ? onThrow(t.fromId!, t.points, 0, t.tStart)
+          : onThrow(throws[k - 1].toId!, throws[k - 1].points, 1, throws[k - 1].tStart)
       }
       if (playbackT < t.tEnd) {
-        const from = onThrow(t.fromId!, t.points, 0)
-        const to = onThrow(t.toId!, t.points, 1)
+        const from = onThrow(t.fromId!, t.points, 0, t.tStart)
+        const to = onThrow(t.toId!, t.points, 1, t.tStart)
         if (!from || !to) return from ?? to
         const span = t.tEnd - t.tStart
         const f = span > 0 ? (playbackT - t.tStart) / span : 1
@@ -725,8 +733,8 @@ export function usePlayEditor() {
       }
     }
     const last = throws[throws.length - 1]
-    return onThrow(last.toId!, last.points, 1)
-  }, [renderPlayers, timeline, ballHolderId, ballOffset, restingPositions, playbackT])
+    return onThrow(last.toId!, last.points, 1, last.tStart)
+  }, [renderPlayers, players, timeline, ballHolderId, ballOffset, playerPositionsAt, playbackT])
 
   // --- Save / load ----------------------------------------------------
 
