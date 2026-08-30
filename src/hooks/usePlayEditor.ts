@@ -54,18 +54,18 @@ const DEFAULT_BALL_OFFSET: Point = { x: BALL_MIN_GAP, y: 0 }
  */
 const DEFAULT_SPOTS: Record<CourtType, Point[]> = {
   half: [
-    { x: 237, y: 265 }, // top of the arc
-    { x: 114, y: 306 }, // left wing
-    { x: 360, y: 306 }, // right wing
-    { x: 161, y: 92 }, // left post
-    { x: 313, y: 92 }, // right post
+    { x: 237, y: 268 }, // top of the arc
+    { x: 110, y: 230 }, // left wing
+    { x: 364, y: 230 }, // right wing
+    { x: 150, y: 92 }, // left post
+    { x: 320, y: 92 }, // right post
   ],
   full: [
-    { x: 905, y: 350 }, // top of the arc, attacking the right basket
-    { x: 980, y: 230 }, // left wing
-    { x: 980, y: 470 }, // right wing
-    { x: 1160, y: 215 }, // left post
-    { x: 1160, y: 485 }, // right post
+    { x: 820, y: 353 }, // top of the arc, attacking the right basket
+    { x: 876, y: 164 }, // left wing
+    { x: 876, y: 542 }, // right wing
+    { x: 1082, y: 223 }, // left post
+    { x: 1082, y: 476 }, // right post
   ],
 }
 

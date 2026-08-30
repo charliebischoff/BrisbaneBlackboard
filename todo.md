@@ -1,3 +1,9 @@
+1. set the default mode to be move & ball. hide the option to switch to other modes, we will ignore them for now.
+
+2. instead of a sidebar, just have a thin minimal black bar at the top. it has two tabs, one for half court and one for full court. it has a player roster icon (just 2 stickmen icon) that brings up our current roster selection view.
+
+3.
+
 # important notes from will
 
 - remove the parquet marking because you want less noise

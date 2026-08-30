@@ -16,17 +16,9 @@ export default function Court({ courtType }: Props) {
       {image ? (
         <KonvaImage image={image} x={0} y={0} width={width} height={height} />
       ) : (
-        // Hardwood-colored placeholder while the court image loads, so
-        // there's no blank flash on first paint or when switching modes.
-        <Rect
-          x={0}
-          y={0}
-          width={width}
-          height={height}
-          fillLinearGradientStartPoint={{ x: 0, y: 0 }}
-          fillLinearGradientEndPoint={{ x: width, y: height }}
-          fillLinearGradientColorStops={[0, '#b8763f', 1, '#9c5f2e']}
-        />
+        // Flat white placeholder while the court image loads — matches the
+        // line-art courts, so there's no color flash before they paint.
+        <Rect x={0} y={0} width={width} height={height} fill="#ffffff" />
       )}
     </Layer>
   )

@@ -6,7 +6,7 @@ import { CourtType } from '../types'
  * 1:1 onto the artwork with no separate scale factor to keep track of.
  */
 export const COURT_DIMENSIONS: Record<CourtType, { width: number; height: number }> = {
-  half: { width: 474, height: 479 },
+  half: { width: 474, height: 442 },
   full: { width: 1234, height: 700 },
 }
 
@@ -24,5 +24,5 @@ export const BALL_MIN_GAP = PLAYER_TOKEN_RADIUS + BALL_RADIUS + 2
 
 export const COURT_IMAGE_SRC: Record<CourtType, string> = {
   half: '/court/half-court.webp',
-  full: '/court/full-court.jpg',
+  full: '/court/full-court.webp',
 }

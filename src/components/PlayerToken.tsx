@@ -65,7 +65,8 @@ export default function PlayerToken({
     >
       {/* Drag mode draws a real ball, so the stand-in possession ring is redundant there. */}
       {hasBall && mode !== 'drag' && <Circle radius={radius + 8} stroke={BALL_COLOR} strokeWidth={2.5} />}
-      {isSelected && <Circle radius={radius + 4} stroke="#f5efe0" strokeWidth={2} dash={[3, 3]} />}
+      {/* Dark ink, not cream — the court is white line art, so a light ring vanishes. */}
+      {isSelected && <Circle radius={radius + 4} stroke="#1f2937" strokeWidth={2} dash={[3, 3]} />}
 
       {photo ? (
         <Group clipFunc={(ctx) => ctx.arc(0, 0, radius, 0, Math.PI * 2, false)}>
@@ -102,13 +103,13 @@ export default function PlayerToken({
           text={player.name.split(' ').slice(-1)[0]}
           fontSize={10 * sizeScale}
           fontStyle="500"
-          fill="#f5efe0"
+          fill="#1f2937"
           width={90 * sizeScale}
           offsetX={45 * sizeScale}
           y={radius + 6}
           align="center"
           listening={false}
-          shadowColor="black"
+          shadowColor="white"
           shadowBlur={3}
           shadowOpacity={0.8}
         />
