@@ -28,12 +28,12 @@
 
 - make sure the player tokens are big enough whether they are in full court or half court to touch on a screen
 
-- how do you want to save and retrieve your plays?
-
-- to move the ball, do you just drag it?
-
 - the tab contains a 'team, two people abstract' icon to represent the roster
 
 - leave the save feature alone first, screen record for now
 
 - 'just replicate the physical whiteboard, other features can come later'
+
+- add a slider to change the size of the ball
+
+- add a slider to choose how many lines you want to see

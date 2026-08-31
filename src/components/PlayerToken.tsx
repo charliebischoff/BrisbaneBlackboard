@@ -1,5 +1,7 @@
+import { useRef } from 'react'
 import { Group, Circle, Text, Image as KonvaImage } from 'react-konva'
 import Konva from 'konva'
+import { pulse } from '../lib/pulse'
 import { CourtType, Player } from '../types'
 import { EditorMode } from '../hooks/usePlayEditor'
 import { useHTMLImage } from '../hooks/useHTMLImage'
@@ -40,6 +42,7 @@ export default function PlayerToken({
   const sizeScale = courtType === 'full' ? 1.50 : 1
   const radius = PLAYER_TOKEN_RADIUS * sizeScale
   const isPositionMode = mode === 'position'
+  const groupRef = useRef<Konva.Group>(null)
   const photo = useHTMLImage(player.photoUrl)
 
   function handleDragMove(e: Konva.KonvaEventObject<DragEvent>) {
@@ -47,11 +50,14 @@ export default function PlayerToken({
   }
 
   function handlePointerDown() {
+    // Visual acknowledgement of the touch — nothing else depends on it.
+    pulse(groupRef.current)
     if (!isPositionMode) onDrawStart(player.id)
   }
 
   return (
     <Group
+      ref={groupRef}
       x={player.x}
       y={player.y}
       draggable={isPositionMode}

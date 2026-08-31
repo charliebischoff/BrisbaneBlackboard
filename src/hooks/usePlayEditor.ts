@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { v4 as uuid } from 'uuid'
 import {
   BallTransfer,
@@ -11,10 +11,17 @@ import {
   RosterPlayer,
   RouteSegment,
 } from '../types'
-import { pathLength, pointAtFraction, routeEndPoint } from '../lib/routeGeometry'
+import {
+  MAX_STORED_LINES,
+  lineSeqFloor,
+  pathLength,
+  pointAtFraction,
+  routeEndPoint,
+} from '../lib/routeGeometry'
 import { rosterStore } from '../lib/rosterStore'
 import { localPlayStore } from '../lib/storage'
-import { BALL_MIN_GAP, COURT_DIMENSIONS } from '../lib/court'
+import { BALL_RADIUS, COURT_DIMENSIONS, PLAYER_TOKEN_RADIUS, ballMinGap, ballRadius } from '../lib/court'
+import { Settings, settingsStore } from '../lib/settingsStore'
 
 /**
  * Everything that makes a play a play, in a form two versions can be compared by.
@@ -44,7 +51,7 @@ const MIN_GESTURE_LENGTH = 6 // shorter than this, treat the press as a tap (sel
 export const PASS_CATCH_RADIUS = 38
 
 /** Where the ball sits relative to its carrier until the coach drops it somewhere else. */
-const DEFAULT_BALL_OFFSET: Point = { x: BALL_MIN_GAP, y: 0 }
+const DEFAULT_BALL_OFFSET: Point = { x: ballMinGap(BALL_RADIUS), y: 0 }
 
 /**
  * Default 5-player spots, tuned by eye against each court image — these are
@@ -80,6 +87,28 @@ const DEFAULT_STARTER_IDS = [
   'nate-hinton',
   'sam-mcdaniel',
 ]
+
+/** Two tokens closer than this read as one blob, so a spot that close is "taken". */
+const SPOT_CLEARANCE = PLAYER_TOKEN_RADIUS * 2.5
+
+/**
+ * Where to drop a player who is being added to the court. Indexing
+ * `DEFAULT_SPOTS` by headcount put them straight on top of someone whenever
+ * the court was filled in a different order than it emptied (add after a
+ * removal, or after players have been moved around). Pick the first spot with
+ * nothing near it instead, and if the court really is that crowded, the spot
+ * that is at least furthest from everyone.
+ */
+function pickFreeSpot(spots: Point[], occupied: Point[]): Point {
+  const clearance = spots.map((spot) =>
+    occupied.reduce((min, p) => Math.min(min, Math.hypot(spot.x - p.x, spot.y - p.y)), Infinity),
+  )
+  const free = clearance.findIndex((d) => d >= SPOT_CLEARANCE)
+  if (free !== -1) return spots[free]
+  let best = 0
+  for (let i = 1; i < spots.length; i++) if (clearance[i] > clearance[best]) best = i
+  return spots[best]
+}
 
 function buildDefaultPlayers(courtType: CourtType): Player[] {
   const roster = rosterStore.getAll()
@@ -159,7 +188,9 @@ export function usePlayEditor() {
   const [players, setPlayers] = useState<Player[]>(() => buildDefaultPlayers('half'))
   const [routes, setRoutes] = useState<PlayerRoute[]>([])
   const [selectedPlayerId, setSelectedPlayerId] = useState<string | null>(null)
-  const [mode, setMode] = useState<EditorMode>('draw')
+  // 'drag' (move & ball) is the only mode the UI exposes right now — the other
+  // two stay in the type/state for the future settings menu.
+  const [mode, setMode] = useState<EditorMode>('drag')
   const [lineType, setLineType] = useState<LineType>('motion')
   const [ballHolderId, setBallHolderId] = useState<string | null>(() => buildDefaultPlayers('half')[0]?.id ?? null)
   const [drawGesture, setDrawGesture] = useState<DrawGesture | null>(null)
@@ -178,6 +209,10 @@ export function usePlayEditor() {
   const [isPlaying, setIsPlaying] = useState(false)
   const [speed, setSpeed] = useState(1) // 0.5x - 2x
   const [playbackT, setPlaybackT] = useState(0)
+
+  /** Display settings, loaded once from localStorage and written through on change. */
+  const [settings, setSettings] = useState<Settings>(() => settingsStore.get())
+  const currentBallRadius = ballRadius(settings.ballScale)
   const rafRef = useRef<number | null>(null)
   const lastTsRef = useRef<number | null>(null)
 
@@ -188,6 +223,41 @@ export function usePlayEditor() {
    */
   const seqRef = useRef(0)
   const nextSeq = useCallback(() => seqRef.current++, [])
+
+  /**
+   * Keep stored lines bounded. The board only ever *shows* the last few
+   * (the visible-lines setting, filtered at render), but state would otherwise
+   * accumulate every stroke of a whole training session. Once past
+   * `MAX_STORED_LINES` the oldest segments and ball transfers are dropped for
+   * good. Segment points are absolute, so dropping the front of a route leaves
+   * the survivors drawn exactly where they were.
+   */
+  useEffect(() => {
+    const floor = lineSeqFloor(routes, ballTransfers, MAX_STORED_LINES)
+    if (floor === -Infinity) return
+
+    // Losing a route entirely would snap that player back to their authored
+    // start, since position is read off the end of the route. Bank it first.
+    // Partially pruned routes keep their last segment, so their end is unchanged.
+    const emptied = routes.filter((r) => !r.segments.some((s) => s.seq >= floor))
+    if (emptied.length > 0) {
+      setPlayers((prev) =>
+        prev.map((p) => {
+          const route = emptied.find((r) => r.playerId === p.id)
+          if (!route) return p
+          const { x, y } = routeEndPoint(route, { x: p.x, y: p.y })
+          return { ...p, x, y }
+        }),
+      )
+    }
+
+    setRoutes((prev) =>
+      prev
+        .map((route) => ({ ...route, segments: route.segments.filter((s) => s.seq >= floor) }))
+        .filter((route) => route.segments.length > 0),
+    )
+    setBallTransfers((prev) => prev.filter((t) => t.seq >= floor))
+  }, [routes, ballTransfers])
 
   const selectPlayer = useCallback((id: string) => {
     setSelectedPlayerId((current) => (current === id ? null : id))
@@ -248,8 +318,15 @@ export function usePlayEditor() {
         if (prev.some((p) => p.id === rosterPlayer.id)) return prev
         const offenseCount = prev.filter((p) => p.team === 'offense').length
         if (offenseCount >= MAX_OFFENSE_ON_COURT) return prev
-        const spots = DEFAULT_SPOTS[courtType]
-        const spot = spots[offenseCount % spots.length]
+        // Compare against where players actually *are* on screen — the end of
+        // their route — not the position they were authored at.
+        const occupied = prev.map((p) =>
+          routeEndPoint(
+            routes.find((r) => r.playerId === p.id),
+            { x: p.x, y: p.y },
+          ),
+        )
+        const spot = pickFreeSpot(DEFAULT_SPOTS[courtType], occupied)
         return [
           ...prev,
           {
@@ -264,7 +341,7 @@ export function usePlayEditor() {
         ]
       })
     },
-    [courtType],
+    [courtType, routes],
   )
 
   const removePlayerFromCourt = useCallback(
@@ -352,9 +429,9 @@ export function usePlayEditor() {
     if (len < 0.001) {
       dx = DEFAULT_BALL_OFFSET.x
       dy = DEFAULT_BALL_OFFSET.y
-    } else if (len < BALL_MIN_GAP) {
-      dx = (dx / len) * BALL_MIN_GAP
-      dy = (dy / len) * BALL_MIN_GAP
+    } else if (len < ballMinGap(currentBallRadius)) {
+      dx = (dx / len) * ballMinGap(currentBallRadius)
+      dy = (dy / len) * ballMinGap(currentBallRadius)
     }
 
     const fromId = ballHolderId
@@ -378,9 +455,30 @@ export function usePlayEditor() {
     setBallHolderId(closest.id)
     setBallOffset({ x: dx, y: dy })
     setBallHint(null)
-  }, [ballGesture, players, ballHolderId, ballOffset, restingPositions, nextSeq])
+  }, [ballGesture, players, ballHolderId, ballOffset, restingPositions, nextSeq, currentBallRadius])
 
   const dismissBallHint = useCallback(() => setBallHint(null), [])
+
+  const setMaxVisibleLines = useCallback((value: number) => {
+    setSettings(settingsStore.save({ ...settings, maxVisibleLines: value }))
+  }, [settings])
+
+  /**
+   * Growing the ball would let a puck already at rest overlap its carrier, so
+   * the resting offset is pushed back out to the new minimum gap right away
+   * rather than waiting for the next drag.
+   */
+  const setBallScale = useCallback((value: number) => {
+    const next = settingsStore.save({ ...settings, ballScale: value })
+    setSettings(next)
+    const gap = ballMinGap(ballRadius(next.ballScale))
+    setBallOffset((offset) => {
+      const len = Math.hypot(offset.x, offset.y)
+      if (len >= gap) return offset
+      if (len < 0.001) return { x: gap, y: 0 }
+      return { x: (offset.x / len) * gap, y: (offset.y / len) * gap }
+    })
+  }, [settings])
 
   /**
    * Hands the ball to a player directly — this sets who has it *at the start*
@@ -477,10 +575,22 @@ export function usePlayEditor() {
   }, [])
 
   const clearAllRoutes = useCallback(() => {
+    // A player's on-screen spot is the end of their route, so wiping the board
+    // would teleport everyone back to their authored start. Commit where they
+    // ended up first: erasing lines must not undo the arrangement.
+    setPlayers((prev) =>
+      prev.map((p) => {
+        const { x, y } = routeEndPoint(
+          routes.find((r) => r.playerId === p.id),
+          { x: p.x, y: p.y },
+        )
+        return { ...p, x, y }
+      }),
+    )
     setRoutes([])
     setBallTransfers([])
     seqRef.current = 0
-  }, [])
+  }, [routes])
 
   // --- Playback -----------------------------------------------------
 
@@ -877,6 +987,10 @@ export function usePlayEditor() {
   }, [savedPlay, loadPlay, newPlay])
 
   return {
+    settings,
+    ballRadius: currentBallRadius,
+    setMaxVisibleLines,
+    setBallScale,
     playId,
     playName,
     setPlayName,

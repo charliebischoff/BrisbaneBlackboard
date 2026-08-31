@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { Stage, Layer, Circle } from 'react-konva'
 import Konva from 'konva'
 import Court from './Court'
@@ -7,6 +7,7 @@ import RouteLine from './RouteLine'
 import BallToken from './BallToken'
 import { usePlayEditor, PASS_CATCH_RADIUS } from '../hooks/usePlayEditor'
 import { BALL_COLOR } from '../lib/court'
+import { lineSeqFloor } from '../lib/routeGeometry'
 
 const TEAM_COLOR = { offense: '#3b82f6', defense: '#dc2626' } as const
 const BALL_LINE_COLOR = BALL_COLOR
@@ -96,6 +97,16 @@ export default function CourtEditor({ editor }: Props) {
     ? editor.ballGesture[editor.ballGesture.length - 1]
     : editor.ballPosition
 
+  /**
+   * Only the most recent few lines stay on the board — older ones fade out of
+   * view as soon as a new drag is released. Nothing is deleted here; state is
+   * pruned separately at a much higher cap in usePlayEditor.
+   */
+  const visibleFloor = useMemo(
+    () => lineSeqFloor(editor.routes, editor.ballTransfers, editor.settings.maxVisibleLines),
+    [editor.routes, editor.ballTransfers, editor.settings.maxVisibleLines],
+  )
+
   function handleStageClick(e: Konva.KonvaEventObject<MouseEvent | TouchEvent>) {
     // Tapping empty court (not a player token) clears the current selection.
     if (e.target === e.target.getStage()) editor.clearSelection()
@@ -123,13 +134,17 @@ export default function CourtEditor({ editor }: Props) {
           {editor.routes.map((route) => {
             const player = editor.rawPlayers.find((p) => p.id === route.playerId)
             if (!player) return null
-            return <RouteLine key={route.playerId} segments={route.segments} color={TEAM_COLOR[player.team]} />
+            const segments = route.segments.filter((s) => s.seq >= visibleFloor)
+            if (segments.length === 0) return null
+            return <RouteLine key={route.playerId} segments={segments} color={TEAM_COLOR[player.team]} />
           })}
 
           {/* Ball throws — kept out of player routes so they animate the ball, not the passer */}
-          {editor.ballTransfers.map((transfer, i) => (
-            <RouteLine key={`ball-${i}`} segments={[{ type: 'balltransfer', points: transfer.points }]} color={BALL_LINE_COLOR} />
-          ))}
+          {editor.ballTransfers
+            .filter((transfer) => transfer.seq >= visibleFloor)
+            .map((transfer, i) => (
+              <RouteLine key={`ball-${i}`} segments={[{ type: 'balltransfer', points: transfer.points }]} color={BALL_LINE_COLOR} />
+            ))}
 
           {editor.ballGesture && editor.ballGesture.length > 1 && (
             <RouteLine segments={[{ type: 'balltransfer', points: editor.ballGesture }]} color={BALL_LINE_COLOR} />
@@ -190,6 +205,7 @@ export default function CourtEditor({ editor }: Props) {
           {editor.mode === 'drag' && ballDisplayPosition && (
             <BallToken
               position={ballDisplayPosition}
+              radius={editor.ballRadius}
               isDragging={!!editor.ballGesture}
               onDragStart={handleBallDragStart}
             />

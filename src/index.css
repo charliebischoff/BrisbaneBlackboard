@@ -17,3 +17,43 @@ body {
 .court-stage-wrapper {
   touch-action: none;
 }
+
+/* Settings sliders — the default range control is far too thin to hit reliably
+   with a finger on a courtside tablet, so track and thumb are both enlarged. */
+.settings-slider {
+  -webkit-appearance: none;
+  appearance: none;
+  height: 44px;
+  background: transparent;
+}
+
+.settings-slider::-webkit-slider-runnable-track {
+  height: 10px;
+  border-radius: 999px;
+  background: #2a2a2a;
+}
+
+.settings-slider::-moz-range-track {
+  height: 10px;
+  border-radius: 999px;
+  background: #2a2a2a;
+}
+
+.settings-slider::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 34px;
+  height: 34px;
+  margin-top: -12px;
+  border-radius: 999px;
+  border: none;
+  background: #e0703a;
+}
+
+.settings-slider::-moz-range-thumb {
+  width: 34px;
+  height: 34px;
+  border-radius: 999px;
+  border: none;
+  background: #e0703a;
+}
