@@ -12,12 +12,20 @@ export default function App() {
 
   // Missed-pass feedback used to live in the sidebar toolbar. Move & ball is
   // now the only mode, so a dropped ball must still say something.
-  const { ballHint, dismissBallHint } = editor
+  const { ballHint, dismissBallHint, canUndoClear, dismissUndo } = editor
   useEffect(() => {
     if (!ballHint) return
     const timer = window.setTimeout(dismissBallHint, 2500)
     return () => window.clearTimeout(timer)
   }, [ballHint, dismissBallHint])
+
+  // The erase button has no confirm step, so the way back is offered right
+  // after — long enough to notice a mistake, short enough to stay out of the way.
+  useEffect(() => {
+    if (!canUndoClear) return
+    const timer = window.setTimeout(dismissUndo, 8000)
+    return () => window.clearTimeout(timer)
+  }, [canUndoClear, dismissUndo])
 
   return (
     <div className="h-screen w-screen bg-ink-900 flex flex-col overflow-hidden">
@@ -37,6 +45,18 @@ export default function App() {
             {ballHint}
           </div>
         )}
+
+        {canUndoClear && !ballHint && (
+          <div className="absolute top-2 left-1/2 -translate-x-1/2 flex items-center gap-3 pl-4 pr-2 py-2 rounded-full bg-black/80 text-court-line text-sm font-body">
+            <span>Board erased</span>
+            <button
+              onClick={editor.undoClearAll}
+              className="px-3 py-1.5 rounded-full bg-accent text-ink-900 font-medium"
+            >
+              Undo
+            </button>
+          </div>
+        )}
       </main>
 
       {isRosterOpen && (
@@ -44,6 +64,7 @@ export default function App() {
           onCourtIds={editor.onCourtIds}
           onAddToCourt={editor.addPlayerToCourt}
           onRemoveFromCourt={editor.removePlayerFromCourt}
+          onRosterChanged={editor.syncCourtWithRoster}
           courtIsFull={editor.courtIsFull}
           onClose={() => setIsRosterOpen(false)}
         />

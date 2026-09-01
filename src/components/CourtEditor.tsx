@@ -6,7 +6,7 @@ import PlayerToken from './PlayerToken'
 import RouteLine from './RouteLine'
 import BallToken from './BallToken'
 import { usePlayEditor, PASS_CATCH_RADIUS } from '../hooks/usePlayEditor'
-import { BALL_COLOR } from '../lib/court'
+import { BALL_COLOR, PLAYER_TOKEN_RADIUS } from '../lib/court'
 import { lineSeqFloor } from '../lib/routeGeometry'
 
 const TEAM_COLOR = { offense: '#3b82f6', defense: '#dc2626' } as const
@@ -38,7 +38,16 @@ function useResponsiveScale(
     }
     measure()
     window.addEventListener('resize', measure)
-    return () => window.removeEventListener('resize', measure)
+    // Not every container resize fires a window resize (iOS URL-bar collapse,
+    // PWA display-mode changes). A stale scale isn't only cosmetic: incoming
+    // pointer coordinates are divided by it, so strokes would land offset from
+    // the finger.
+    const observer = new ResizeObserver(measure)
+    if (containerRef.current) observer.observe(containerRef.current)
+    return () => {
+      window.removeEventListener('resize', measure)
+      observer.disconnect()
+    }
     // Re-measure immediately when the court's own dimensions change (i.e.
     // switching full/half), not just on window resize.
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -52,10 +61,22 @@ export default function CourtEditor({ editor }: Props) {
   const { width: COURT_WIDTH, height: COURT_HEIGHT } = editor.courtDimensions
   const scale = useResponsiveScale(containerRef, COURT_WIDTH, COURT_HEIGHT)
 
+  /**
+   * Pointer position in court units. Clamped to the court itself: a stroke that
+   * ran off the edge would leave the player's resting position (the end of their
+   * route) outside the Stage, which clips — an invisible token can never be
+   * pressed again, and erasing banks the off-court spot rather than recovering it.
+   * Kept here so route drawing and ball dragging are bounded by the same rule.
+   */
   function stagePoint(stage: Konva.Stage): { x: number; y: number } | null {
     const pointer = stage.getPointerPosition()
     if (!pointer) return null
-    return { x: pointer.x / scale, y: pointer.y / scale }
+    const clamp = (v: number, max: number) =>
+      Math.min(max - PLAYER_TOKEN_RADIUS, Math.max(PLAYER_TOKEN_RADIUS, v))
+    return {
+      x: clamp(pointer.x / scale, COURT_WIDTH),
+      y: clamp(pointer.y / scale, COURT_HEIGHT),
+    }
   }
 
   function handlePointerMove(e: Konva.KonvaEventObject<MouseEvent | TouchEvent>) {
@@ -125,6 +146,9 @@ export default function CourtEditor({ editor }: Props) {
         onTouchMove={handlePointerMove}
         onMouseUp={handlePointerUp}
         onTouchEnd={handlePointerUp}
+        // Without this an interrupted touch (system gesture, notification, palm
+        // rejection) leaves the gesture live and freezes the token under it.
+        onTouchCancel={handlePointerUp}
         onMouseLeave={handlePointerUp}
         className="rounded-lg shadow-2xl shadow-black/50"
       >

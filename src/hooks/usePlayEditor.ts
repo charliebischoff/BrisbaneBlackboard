@@ -201,6 +201,20 @@ export function usePlayEditor() {
   const [ballGesture, setBallGesture] = useState<Point[] | null>(null)
   const [ballHint, setBallHint] = useState<string | null>(null)
 
+  /**
+   * What the last erase took, so it can be put back. The erase button is the
+   * biggest target in the bar and there is no confirm step, so one stray palm
+   * courtside would otherwise cost the whole board. Null = nothing to restore.
+   */
+  const [erasedSnapshot, setErasedSnapshot] = useState<{
+    players: Player[]
+    routes: PlayerRoute[]
+    ballTransfers: BallTransfer[]
+    ballOffset: Point
+    ballHolderId: string | null
+    seq: number
+  } | null>(null)
+
   // The play as it was last persisted or loaded, and its signature.
   // null = nothing to revert to; this play has never been written.
   const [savedPlay, setSavedPlay] = useState<Play | null>(null)
@@ -302,6 +316,7 @@ export function usePlayEditor() {
     setSelectedPlayerId(null)
     setDrawGesture(null)
     setPlaybackT(0)
+    setErasedSnapshot(null)
   }, [])
 
   // --- Roster <-> court ------------------------------------------------
@@ -314,6 +329,14 @@ export function usePlayEditor() {
 
   const addPlayerToCourt = useCallback(
     (rosterPlayer: RosterPlayer) => {
+      // Emptying the court leaves nobody holding the ball, and there is no
+      // possession control in the UI — so whoever refills it gets the ball back,
+      // or the board would stay ball-less until a reload.
+      // Decided outside the updater — those run twice under StrictMode.
+      if (ballHolderId == null) {
+        setBallHolderId(rosterPlayer.id)
+        setBallOffset(DEFAULT_BALL_OFFSET)
+      }
       setPlayers((prev) => {
         if (prev.some((p) => p.id === rosterPlayer.id)) return prev
         const offenseCount = prev.filter((p) => p.team === 'offense').length
@@ -341,8 +364,37 @@ export function usePlayEditor() {
         ]
       })
     },
-    [courtType, routes],
+    [courtType, routes, ballHolderId],
   )
+
+  /**
+   * Re-reads the roster and reconciles the court against it. On-court players
+   * carry a *copy* of their roster fields (taken when they were added), so a
+   * rename or a filled-in jersey number would otherwise never reach the board;
+   * and a player who has left the roster entirely — deleted, or wiped by
+   * "restore original squad" — would linger on court with no card left in the
+   * roster modal to toggle them off, still counting toward the 5-player cap.
+   */
+  const syncCourtWithRoster = useCallback(() => {
+    const roster = rosterStore.getAll()
+    const byId = new Map(roster.map((rp) => [rp.id, rp]))
+    setPlayers((prev) =>
+      prev
+        .filter((p) => byId.has(p.id))
+        .map((p) => {
+          const rp = byId.get(p.id)!
+          return { ...p, name: rp.name, number: rp.number ?? 0, photoUrl: rp.photo }
+        }),
+    )
+    const gone = (id: string) => !byId.has(id)
+    setRoutes((prev) => prev.filter((r) => !gone(r.playerId)))
+    setBallTransfers((prev) => prev.filter((t) => !gone(t.fromId) && !gone(t.toId)))
+    setSelectedPlayerId((current) => (current && gone(current) ? null : current))
+    setBallHolderId((current) => {
+      if (!current || !gone(current)) return current
+      return players.find((p) => !gone(p.id))?.id ?? null
+    })
+  }, [players])
 
   const removePlayerFromCourt = useCallback(
     (id: string) => {
@@ -352,13 +404,18 @@ export function usePlayEditor() {
       // or animated, so it goes with them.
       setBallTransfers((prev) => prev.filter((t) => t.fromId !== id && t.toId !== id))
       setSelectedPlayerId((current) => (current === id ? null : current))
-      setBallHolderId((current) => {
-        if (current !== id) return current
+      // Decided outside the updater — those run twice under StrictMode.
+      if (ballHolderId === id) {
         const remaining = players.filter((p) => p.id !== id)
-        return remaining[0]?.id ?? null
-      })
+        setBallHolderId(remaining[0]?.id ?? null)
+        // The ball changes hands, so the same reasoning as setBallHolder applies:
+        // the offset was measured against the player who just left, and the
+        // transfer chain is anchored to a holder who is no longer there.
+        setBallOffset(DEFAULT_BALL_OFFSET)
+        setBallTransfers([])
+      }
     },
-    [players],
+    [players, ballHolderId],
   )
 
   /**
@@ -384,13 +441,18 @@ export function usePlayEditor() {
   const startBallDrag = useCallback(
     (x: number, y: number) => {
       if (mode !== 'drag') return
+      // One gesture at a time. A second finger landing mid-stroke would replace
+      // the live one, silently binning the first player's half-drawn route.
+      if (drawGesture || ballGesture) return
+      // A new edit supersedes the erase — restoring after it would bin this work.
+      setErasedSnapshot(null)
       // Editing and the playback clock don't mix — drop back to the resting board.
       stopPlaybackRef.current()
       setPlaybackT(0)
       setBallHint(null)
       setBallGesture([{ x, y }])
     },
-    [mode],
+    [mode, drawGesture, ballGesture],
   )
 
   const extendBallDrag = useCallback((x: number, y: number) => {
@@ -501,6 +563,11 @@ export function usePlayEditor() {
   const startDrawGesture = useCallback(
     (playerId: string) => {
       if (mode !== 'draw' && mode !== 'drag') return
+      // Same single-gesture rule as the ball: a second finger must not steal an
+      // in-progress stroke.
+      if (drawGesture || ballGesture) return
+      // A new edit supersedes the erase — restoring after it would bin this work.
+      setErasedSnapshot(null)
       const player = players.find((p) => p.id === playerId)
       if (!player) return
       // Same as the ball: a press means "edit", so the clock goes back to rest
@@ -511,7 +578,7 @@ export function usePlayEditor() {
       const start = routeEndPoint(route, { x: player.x, y: player.y })
       setDrawGesture({ playerId, points: [start] })
     },
-    [mode, players, routes],
+    [mode, players, routes, drawGesture, ballGesture],
   )
 
   /** Appends a point to the in-progress gesture — called on pointer move while dragging. */
@@ -575,6 +642,9 @@ export function usePlayEditor() {
   }, [])
 
   const clearAllRoutes = useCallback(() => {
+    // The erase button is a single large tap with no confirm, so bank enough to
+    // put the board back — one level, until the next erase.
+    setErasedSnapshot({ players, routes, ballTransfers, ballOffset, ballHolderId, seq: seqRef.current })
     // A player's on-screen spot is the end of their route, so wiping the board
     // would teleport everyone back to their authored start. Commit where they
     // ended up first: erasing lines must not undo the arrangement.
@@ -590,7 +660,21 @@ export function usePlayEditor() {
     setRoutes([])
     setBallTransfers([])
     seqRef.current = 0
-  }, [routes])
+  }, [routes, players, ballTransfers, ballOffset, ballHolderId])
+
+  /** Puts back exactly what the last erase took. One level only. */
+  const undoClearAll = useCallback(() => {
+    if (!erasedSnapshot) return
+    setPlayers(erasedSnapshot.players)
+    setRoutes(erasedSnapshot.routes)
+    setBallTransfers(erasedSnapshot.ballTransfers)
+    setBallOffset(erasedSnapshot.ballOffset)
+    setBallHolderId(erasedSnapshot.ballHolderId)
+    seqRef.current = erasedSnapshot.seq
+    setErasedSnapshot(null)
+  }, [erasedSnapshot])
+
+  const dismissUndo = useCallback(() => setErasedSnapshot(null), [])
 
   // --- Playback -----------------------------------------------------
 
@@ -933,6 +1017,7 @@ export function usePlayEditor() {
       setSelectedPlayerId(null)
       setDrawGesture(null)
       setPlaybackT(0)
+      setErasedSnapshot(null)
       // A just-loaded play is by definition unmodified. The defaults applied
       // above have to be mirrored here or it would read as dirty immediately.
       setSavedPlay(play)
@@ -968,6 +1053,7 @@ export function usePlayEditor() {
     setSelectedPlayerId(null)
     setDrawGesture(null)
     setPlaybackT(0)
+    setErasedSnapshot(null)
     // Never saved — but an empty court isn't dirty either (see isDirty).
     setSavedPlay(null)
     setSavedSignature(null)
@@ -1023,6 +1109,7 @@ export function usePlayEditor() {
     movePlayer,
     addPlayerToCourt,
     removePlayerFromCourt,
+    syncCourtWithRoster,
     startDrawGesture,
     extendDrawGesture,
     endDrawGesture,
@@ -1033,6 +1120,9 @@ export function usePlayEditor() {
     dismissBallHint,
     clearRoute,
     clearAllRoutes,
+    canUndoClear: erasedSnapshot !== null,
+    undoClearAll,
+    dismissUndo,
     play,
     pause,
     resetPlayback,

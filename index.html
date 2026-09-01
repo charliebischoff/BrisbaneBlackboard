@@ -7,7 +7,15 @@
     <link rel="manifest" href="/manifest.json" />
     <meta name="theme-color" content="#0a0e17" />
     <link rel="preconnect" href="https://fonts.googleapis.com" />
-    <link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600;700&family=Inter:wght@400;500;600&display=swap" rel="stylesheet" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <!-- Loaded non-blocking: courtside the app is opened on bad connections, and
+         a stalled font request must not hold up the first paint of the board. -->
+    <link
+      href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600;700&family=Inter:wght@400;500;600&display=swap"
+      rel="stylesheet"
+      media="print"
+      onload="this.media='all'"
+    />
     <title>Playbook</title>
   </head>
   <body class="bg-ink-900">

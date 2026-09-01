@@ -71,8 +71,14 @@ export default function PlayerToken({
     >
       {/* Drag mode draws a real ball, so the stand-in possession ring is redundant there. */}
       {hasBall && mode !== 'drag' && <Circle radius={radius + 8} stroke={BALL_COLOR} strokeWidth={2.5} />}
-      {/* Dark ink, not cream — the court is white line art, so a light ring vanishes. */}
-      {isSelected && <Circle radius={radius + 4} stroke="#1f2937" strokeWidth={2} dash={[3, 3]} />}
+      {/* Dark ink, not cream — the court is white line art, so a light ring vanishes.
+          Hidden in drag mode: selection's only consumer is the per-player route
+          clear, which lives in the toolbar that mode doesn't show — so the ring
+          would be a mark the coach can't act on or dismiss except by tapping
+          bare court. */}
+      {isSelected && mode !== 'drag' && (
+        <Circle radius={radius + 4} stroke="#1f2937" strokeWidth={2} dash={[3, 3]} />
+      )}
 
       {photo ? (
         <Group clipFunc={(ctx) => ctx.arc(0, 0, radius, 0, Math.PI * 2, false)}>

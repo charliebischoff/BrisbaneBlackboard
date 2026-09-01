@@ -7,6 +7,8 @@ interface Props {
   onCourtIds: string[]
   onAddToCourt: (player: RosterPlayer) => void
   onRemoveFromCourt: (id: string) => void
+  /** Re-reads the roster and reconciles the court with it — call after any roster write. */
+  onRosterChanged: () => void
   courtIsFull: boolean
   onClose: () => void
 }
@@ -24,6 +26,7 @@ export default function RosterModal({
   onCourtIds,
   onAddToCourt,
   onRemoveFromCourt,
+  onRosterChanged,
   courtIsFull,
   onClose,
 }: Props) {
@@ -37,6 +40,9 @@ export default function RosterModal({
 
   function refresh() {
     setRoster(rosterStore.getAll())
+    // The court holds copies of roster fields and can outlive a deletion, so
+    // every roster write has to be pushed through to it.
+    onRosterChanged()
   }
 
   useEffect(refresh, [])
