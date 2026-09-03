@@ -79,6 +79,15 @@ export default function TopBar({
       })}
 
       <span className="flex-1 flex items-center justify-end gap-1">
+        {/* Play name, on screen for recordings only — deliberately not stored. */}
+        <input
+          type="text"
+          placeholder="NOTES"
+          aria-label="Play name"
+          autoComplete="off"
+          spellCheck={false}
+          className="flex-1 min-w-0 mx-2 h-[62px] px-3 rounded-md bg-white text-ink-900 text-2xl text-center uppercase tracking-wide placeholder:text-ink-900/40 outline-none"
+        />
         <button
           onClick={onOpenRoster}
           aria-label="Roster"
