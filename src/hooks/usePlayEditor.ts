@@ -12,7 +12,10 @@ import {
   RouteSegment,
 } from '../types'
 import {
+  FlipAxis,
   MAX_STORED_LINES,
+  flipPoint,
+  flipVector,
   lineSeqFloor,
   pathLength,
   pointAtFraction,
@@ -82,10 +85,10 @@ const DEFAULT_SPOTS: Record<CourtType, Point[]> = {
  */
 const DEFAULT_STARTER_IDS = [
   'arnas-velicka',
-  'tyrell-harrison',
-  'harry-rouhliadeff',
   'nate-hinton',
-  'sam-mcdaniel',
+  'lat-mayen',
+  'harry-rouhliadeff',
+  'tyrell-harrison',
 ]
 
 /** Two tokens closer than this read as one blob, so a spot that close is "taken". */
@@ -318,6 +321,57 @@ export function usePlayEditor() {
     setPlaybackT(0)
     setErasedSnapshot(null)
   }, [])
+
+  // --- Flip -------------------------------------------------------------
+
+  /**
+   * Mirrors the whole board in place — the same play run from the other side.
+   * A sideline out-of-bounds from the left wing is the same play as from the
+   * right, and redrawing it by hand is the thing this saves.
+   *
+   * Unlike `setCourtType` this preserves everything: ids, possession, authoring
+   * order and playback clock all survive, only geometry moves. Flipping the
+   * same axis twice therefore lands exactly back on the original, which is why
+   * there's no confirm step and no separate undo.
+   */
+  const flipBoard = useCallback(
+    (axis: FlipAxis) => {
+      const dims = COURT_DIMENSIONS[courtType]
+      const pt = (p: Point) => flipPoint(p, axis, dims)
+      const flipPlayers = (list: Player[]) => list.map((p) => ({ ...p, ...pt({ x: p.x, y: p.y }) }))
+      const flipRoutes = (list: PlayerRoute[]) =>
+        list.map((route) => ({
+          ...route,
+          segments: route.segments.map((s) => ({ ...s, points: s.points.map(pt) })),
+        }))
+      const flipTransfers = (list: BallTransfer[]) =>
+        list.map((t) => ({ ...t, points: t.points.map(pt) }))
+
+      setPlayers(flipPlayers)
+      setRoutes(flipRoutes)
+      setBallTransfers(flipTransfers)
+      // The ball's offset is relative to whoever holds it, so it mirrors as a
+      // vector — running it through flipPoint would fling it across the court.
+      setBallOffset((prev) => flipVector(prev, axis))
+      // Keep the erase snapshot in the orientation the board is in now, or
+      // undoing an erase after a flip would paste the old side back.
+      setErasedSnapshot((prev) =>
+        prev
+          ? {
+              ...prev,
+              players: flipPlayers(prev.players),
+              routes: flipRoutes(prev.routes),
+              ballTransfers: flipTransfers(prev.ballTransfers),
+              ballOffset: flipVector(prev.ballOffset, axis),
+            }
+          : prev,
+      )
+      // A stroke half-drawn against the old orientation has no mirrored meaning.
+      setDrawGesture(null)
+      setBallGesture(null)
+    },
+    [courtType],
+  )
 
   // --- Roster <-> court ------------------------------------------------
 
@@ -1083,6 +1137,7 @@ export function usePlayEditor() {
     courtType,
     courtDimensions: COURT_DIMENSIONS[courtType],
     setCourtType,
+    flipBoard,
     players: renderPlayers,
     rawPlayers: players,
     routes,

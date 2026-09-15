@@ -35,6 +35,7 @@ export default function App() {
         onOpenRoster={() => setIsRosterOpen(true)}
         onOpenSettings={() => setIsSettingsOpen(true)}
         onClearRoutes={editor.clearAllRoutes}
+        onFlip={editor.flipBoard}
       />
 
       <main className="relative flex-1 min-h-0 min-w-0 p-3 md:p-6">

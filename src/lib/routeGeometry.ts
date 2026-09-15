@@ -185,6 +185,32 @@ export function lineSeqFloor(
   return seqs[limit - 1]
 }
 
+export type FlipAxis = 'horizontal' | 'vertical'
+
+/**
+ * Mirrors a court-space point across the court's centre line. Coordinates are
+ * raw court-image pixels, so a flip is pure arithmetic against that court's
+ * dimensions — nothing about display scale enters here.
+ */
+export function flipPoint(
+  p: Point,
+  axis: FlipAxis,
+  dims: { width: number; height: number },
+): Point {
+  return axis === 'horizontal'
+    ? { x: dims.width - p.x, y: p.y }
+    : { x: p.x, y: dims.height - p.y }
+}
+
+/**
+ * Mirrors a vector — an offset with no position of its own, like the ball's
+ * offset from its holder. Same axis, but no translation term: applying
+ * `flipPoint` to it would throw it across the court.
+ */
+export function flipVector(p: Point, axis: FlipAxis): Point {
+  return axis === 'horizontal' ? { x: -p.x, y: p.y } : { x: p.x, y: -p.y }
+}
+
 /** The point a player's NEXT drawn segment should start from — the end of their last segment, or their court position if they have none yet. */
 export function routeEndPoint(route: PlayerRoute | undefined, fallback: Point): Point {
   if (!route || route.segments.length === 0) return fallback
