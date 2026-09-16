@@ -4,6 +4,7 @@ import CourtEditor from './components/CourtEditor'
 import TopBar from './components/TopBar'
 import RosterModal from './components/RosterModal'
 import SettingsModal from './components/SettingsModal'
+import RotatePrompt from './components/RotatePrompt'
 
 export default function App() {
   const editor = usePlayEditor()
@@ -28,7 +29,11 @@ export default function App() {
   }, [canUndoClear, dismissUndo])
 
   return (
-    <div className="h-screen w-screen bg-ink-900 flex flex-col overflow-hidden">
+    // Below `lg` the chrome is a side rail, so the root axis is horizontal: a
+    // near-square court on a 2.17:1 phone screen is height-bound, and spending
+    // the surplus width on chrome buys back the scarce height. h-dvh rather
+    // than h-screen because 100vh is wrong on iOS; identical on iPad.
+    <div className="h-dvh w-screen bg-ink-900 flex flex-row lg:flex-col overflow-hidden">
       <TopBar
         courtType={editor.courtType}
         onCourtTypeChange={editor.setCourtType}
@@ -38,7 +43,11 @@ export default function App() {
         onFlip={editor.flipBoard}
       />
 
-      <main className="relative flex-1 min-h-0 min-w-0 p-3 md:p-6">
+      {/* `lg:` not `md:` — Tailwind's md is 768px, so a landscape phone (874px)
+          was already taking the 24px padding, costing 48px of a 402px screen.
+          The env() insets clear the home indicator and the right-hand notch
+          margin, and are reset at `lg:` so the iPad court keeps its exact size. */}
+      <main className="relative flex-1 min-h-0 min-w-0 p-3 lg:p-6 pb-[max(0.75rem,env(safe-area-inset-bottom))] pr-[max(0.75rem,env(safe-area-inset-right))] lg:pb-6 lg:pr-6">
         <CourtEditor editor={editor} />
 
         {ballHint && (
@@ -79,6 +88,8 @@ export default function App() {
           onClose={() => setIsSettingsOpen(false)}
         />
       )}
+
+      <RotatePrompt />
     </div>
   )
 }

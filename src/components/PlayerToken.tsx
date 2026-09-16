@@ -5,7 +5,7 @@ import { pulse } from '../lib/pulse'
 import { CourtType, Player } from '../types'
 import { EditorMode } from '../hooks/usePlayEditor'
 import { useHTMLImage } from '../hooks/useHTMLImage'
-import { BALL_COLOR, PLAYER_TOKEN_RADIUS } from '../lib/court'
+import { BALL_COLOR, PLAYER_TOKEN_RADIUS, touchRadius } from '../lib/court'
 
 interface Props {
   player: Player
@@ -13,6 +13,8 @@ interface Props {
   hasBall: boolean
   mode: EditorMode
   courtType: CourtType
+  /** Court display scale, so the grab area can stay a constant size in screen pixels. */
+  scale: number
   onSelect: (id: string) => void
   onMove: (id: string, x: number, y: number) => void
   onDragStateChange: (dragging: boolean) => void
@@ -31,6 +33,7 @@ export default function PlayerToken({
   hasBall,
   mode,
   courtType,
+  scale,
   onSelect,
   onMove,
   onDragStateChange,
@@ -69,6 +72,11 @@ export default function PlayerToken({
       onMouseDown={handlePointerDown}
       onTouchStart={handlePointerDown}
     >
+      {/* Invisible grab area, sized in screen pixels rather than court units so a
+          fingertip works at any court scale — see touchRadius. First child so it
+          sits under everything; `transparent` rather than no fill because Konva
+          only hit-tests a shape that has one. */}
+      <Circle radius={touchRadius(radius, scale)} fill="transparent" />
       {/* Drag mode draws a real ball, so the stand-in possession ring is redundant there. */}
       {hasBall && mode !== 'drag' && <Circle radius={radius + 8} stroke={BALL_COLOR} strokeWidth={2.5} />}
       {/* Dark ink, not cream — the court is white line art, so a light ring vanishes.

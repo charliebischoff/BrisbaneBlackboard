@@ -108,7 +108,7 @@ export default function RosterModal({
 
   return (
     <div className="fixed inset-0 z-50 bg-black/70 flex items-center justify-center">
-      <div className="absolute inset-3 md:inset-10 bg-ink-900 rounded-xl flex flex-col overflow-hidden text-court-line font-body shadow-2xl shadow-black/60">
+      <div className="absolute inset-3 lg:inset-10 bg-ink-900 rounded-xl flex flex-col overflow-hidden text-court-line font-body shadow-2xl shadow-black/60">
         <div className="shrink-0 flex items-center justify-between px-4 py-3 border-b border-ink-700">
           <h2 className="font-display text-xl uppercase tracking-wide">
             Roster <span className="text-court-line/40">({onCourtIds.length}/5 on court)</span>

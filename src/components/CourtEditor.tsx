@@ -219,6 +219,7 @@ export default function CourtEditor({ editor }: Props) {
               hasBall={editor.ballHolderId === player.id}
               mode={editor.mode}
               courtType={editor.courtType}
+              scale={scale}
               onSelect={editor.selectPlayer}
               onMove={editor.movePlayer}
               onDragStateChange={() => {}}

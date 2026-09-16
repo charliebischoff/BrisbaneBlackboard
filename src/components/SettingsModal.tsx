@@ -106,7 +106,7 @@ export default function SettingsModal({
       }`}
     >
       <div
-        className={`absolute inset-3 md:inset-10 rounded-xl flex flex-col overflow-hidden text-court-line font-body transition-colors duration-150 ${
+        className={`absolute inset-3 lg:inset-10 rounded-xl flex flex-col overflow-hidden text-court-line font-body transition-colors duration-150 ${
           isSizing ? 'bg-ink-900/5' : 'bg-ink-900 shadow-2xl shadow-black/60'
         }`}
       >

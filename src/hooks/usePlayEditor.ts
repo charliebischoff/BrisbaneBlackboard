@@ -23,7 +23,14 @@ import {
 } from '../lib/routeGeometry'
 import { rosterStore } from '../lib/rosterStore'
 import { localPlayStore } from '../lib/storage'
-import { BALL_RADIUS, COURT_DIMENSIONS, PLAYER_TOKEN_RADIUS, ballMinGap, ballRadius } from '../lib/court'
+import {
+  BALL_RADIUS,
+  COURT_DIMENSIONS,
+  PLAYER_TOKEN_RADIUS,
+  SPOT_CLEARANCE,
+  ballMinGap,
+  ballRadius,
+} from '../lib/court'
 import { Settings, settingsStore } from '../lib/settingsStore'
 
 /**
@@ -90,9 +97,6 @@ const DEFAULT_STARTER_IDS = [
   'harry-rouhliadeff',
   'tyrell-harrison',
 ]
-
-/** Two tokens closer than this read as one blob, so a spot that close is "taken". */
-const SPOT_CLEARANCE = PLAYER_TOKEN_RADIUS * 2.5
 
 /**
  * Where to drop a player who is being added to the court. Indexing

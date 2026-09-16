@@ -2,7 +2,13 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1, user-scalable=no" />
+    <!-- viewport-fit=cover is what makes env(safe-area-inset-*) resolve to real
+         values; without it the notch and home indicator can cover the chrome.
+         Every inset is consumed behind an `lg:` reset so the iPad is unaffected. -->
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1.0, maximum-scale=1, user-scalable=no, viewport-fit=cover"
+    />
     <link rel="icon" type="image/png" href="/icon-192.png" />
     <link rel="manifest" href="/manifest.json" />
     <meta name="theme-color" content="#0a0e17" />

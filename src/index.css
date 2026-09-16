@@ -13,6 +13,22 @@ body {
   font-family: 'Inter', sans-serif;
 }
 
+/* Shown only on a phone-sized screen held upright. Plain CSS rather than a
+   Tailwind variant because Tailwind silently drops the `and (max-width: ...)`
+   half of a `raw` screen, and won't stack a raw screen with `max-lg` at all —
+   which would leave the prompt covering an iPad held upright, where the half
+   court is perfectly usable. The width clause is the whole point, so it can't
+   be left to a mechanism that quietly discards it. */
+.rotate-prompt {
+  display: none;
+}
+
+@media (orientation: portrait) and (max-width: 1023px) {
+  .rotate-prompt {
+    display: flex;
+  }
+}
+
 /* Prevent the page from scrolling/zooming while dragging players on iPad */
 .court-stage-wrapper {
   touch-action: none;
