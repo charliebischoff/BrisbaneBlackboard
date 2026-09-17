@@ -6,6 +6,21 @@ import { CourtType } from '../types'
  * 1:1 onto the artwork with no separate scale factor to keep track of.
  */
 export const COURT_DIMENSIONS: Record<CourtType, { width: number; height: number }> = {
+  // Shorter than the half-court artwork on purpose — see COURT_IMAGE_SIZE.
+  half: { width: 474, height: 330 },
+  full: { width: 1234, height: 700 },
+}
+
+/**
+ * The artwork's own pixel size, which is what the image is drawn at. It equals
+ * COURT_DIMENSIONS except on the half court, where the coordinate space is cut
+ * short so the stage clips the dead strip below the arc — the halfcourt-line
+ * end nothing is ever drawn in. That crop is what lets the rest of the court
+ * scale up to fill the screen. Drawing at the artwork's real size (rather than
+ * stretching it to the coordinate space, or using Konva's `crop`, which is in
+ * source-bitmap pixels) keeps the court's proportions exact.
+ */
+export const COURT_IMAGE_SIZE: Record<CourtType, { width: number; height: number }> = {
   half: { width: 474, height: 442 },
   full: { width: 1234, height: 700 },
 }

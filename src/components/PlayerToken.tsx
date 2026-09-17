@@ -5,7 +5,7 @@ import { pulse } from '../lib/pulse'
 import { CourtType, Player } from '../types'
 import { EditorMode } from '../hooks/usePlayEditor'
 import { useHTMLImage } from '../hooks/useHTMLImage'
-import { BALL_COLOR, PLAYER_TOKEN_RADIUS, touchRadius } from '../lib/court'
+import { BALL_COLOR, COURT_DIMENSIONS, PLAYER_TOKEN_RADIUS, touchRadius } from '../lib/court'
 
 interface Props {
   player: Player
@@ -27,6 +27,13 @@ const TEAM_COLOR: Record<Player['team'], string> = {
   defense: '#dc2626',
 }
 
+/** Name label type size, at sizeScale 1. Shared so the offset math can't drift from the Text node. */
+const LABEL_FONT_SIZE = 10
+/** Konva's height for a single unstyled line — fontSize x its default lineHeight. */
+const LABEL_LINE_HEIGHT = LABEL_FONT_SIZE * 1.2
+/** Clear air between the token's edge and the label. */
+const LABEL_GAP = 6
+
 export default function PlayerToken({
   player,
   isSelected,
@@ -45,6 +52,17 @@ export default function PlayerToken({
   const sizeScale = courtType === 'full' ? 1.50 : 1
   const radius = PLAYER_TOKEN_RADIUS * sizeScale
   const isPositionMode = mode === 'position'
+
+  // The name sits under the token, and the stage clips — so near the bottom edge
+  // it would be cut off or lost entirely. The half court's coordinate space is
+  // cropped short of its artwork (see COURT_IMAGE_SIZE), which puts that edge
+  // inside the band a ball handler at the top of the arc actually occupies.
+  // Flipping the label above the token keeps it readable without reserving a
+  // dead margin along the baseline, which would cost every court real height.
+  // `radius` already carries sizeScale; only the type size still needs it.
+  const labelOffset = radius + LABEL_GAP
+  const labelDrop = labelOffset + LABEL_LINE_HEIGHT * sizeScale
+  const labelAbove = player.y + labelDrop > COURT_DIMENSIONS[courtType].height
   const groupRef = useRef<Konva.Group>(null)
   const photo = useHTMLImage(player.photoUrl)
 
@@ -121,12 +139,12 @@ export default function PlayerToken({
       {player.name && (
         <Text
           text={player.name.split(' ').slice(-1)[0]}
-          fontSize={10 * sizeScale}
+          fontSize={LABEL_FONT_SIZE * sizeScale}
           fontStyle="500"
           fill="#1f2937"
           width={90 * sizeScale}
           offsetX={45 * sizeScale}
-          y={radius + 6}
+          y={labelAbove ? -labelDrop : labelOffset}
           align="center"
           listening={false}
           shadowColor="white"

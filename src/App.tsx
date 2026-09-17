@@ -5,11 +5,18 @@ import TopBar from './components/TopBar'
 import RosterModal from './components/RosterModal'
 import SettingsModal from './components/SettingsModal'
 import RotatePrompt from './components/RotatePrompt'
+import { useAppUpdate, applyUpdate } from './hooks/useAppUpdate'
 
 export default function App() {
   const editor = usePlayEditor()
+  const updateReady = useAppUpdate()
   const [isRosterOpen, setIsRosterOpen] = useState(false)
   const [isSettingsOpen, setIsSettingsOpen] = useState(false)
+  // Dismissing costs nothing: the waiting worker activates by itself the next
+  // time the app is fully closed and reopened. So "Later" means the rest of this
+  // session rather than a snooze — a timed reminder's only real effect would be
+  // to bring the prompt back mid-game, which is when it must not appear.
+  const [isUpdateDismissed, setIsUpdateDismissed] = useState(false)
 
   // Missed-pass feedback used to live in the sidebar toolbar. Move & ball is
   // now the only mode, so a dropped ball must still say something.
@@ -64,6 +71,29 @@ export default function App() {
               className="px-3 py-1.5 rounded-full bg-accent text-ink-900 font-medium"
             >
               Undo
+            </button>
+          </div>
+        )}
+
+        {/* Lowest priority of the three: this one has no timeout, so it must
+            not be allowed to sit on top of the erase-undo window, which does.
+            Never auto-applies — the play on the board isn't saved anywhere, so
+            reloading has to be a deliberate tap. */}
+        {updateReady && !isUpdateDismissed && !ballHint && !canUndoClear && (
+          <div className="absolute top-2 left-1/2 -translate-x-1/2 flex items-center gap-2 pl-4 pr-2 py-2 rounded-full bg-black/80 text-court-line text-sm font-body">
+            <span>Update ready</span>
+            {/* Unfilled, so "Reload" stays the one obvious action of the two. */}
+            <button
+              onClick={() => setIsUpdateDismissed(true)}
+              className="px-3 py-1.5 rounded-full text-court-line/80"
+            >
+              Later
+            </button>
+            <button
+              onClick={applyUpdate}
+              className="px-3 py-1.5 rounded-full bg-accent text-ink-900 font-medium"
+            >
+              Reload
             </button>
           </div>
         )}

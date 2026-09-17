@@ -6,12 +6,22 @@ export default defineConfig({
   plugins: [
     react(),
     VitePWA({
-      registerType: 'autoUpdate',
+      // 'prompt', not 'autoUpdate': autoUpdate forces skipWaiting and makes the
+      // injected client reload the page the instant a new worker activates. The
+      // board's current play lives only in React state, so that would discard a
+      // play mid-draw. Under 'prompt' the new worker parks in `waiting` and
+      // useAppUpdate surfaces a toast instead — see src/hooks/useAppUpdate.ts.
+      registerType: 'prompt',
       // We ship our own public/manifest.json (linked from index.html) rather
       // than letting the plugin generate one, so the two stay in sync.
       manifest: false,
       includeAssets: ['icon-192.png', 'icon-512.png'],
       workbox: {
+        // The plugin only sets this for us under registerType: 'autoUpdate', and
+        // it is orthogonal to the prompt — without it a freshly installed worker
+        // precaches but doesn't control the page that installed it, so the first
+        // offline-capable load would slip to the *next* launch.
+        clientsClaim: true,
         // webp matters: the two court images are webp, and without them the
         // board falls back to a blank white rectangle when offline.
         globPatterns: ['**/*.{js,css,html,png,svg,webp,json,woff2}'],
