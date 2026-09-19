@@ -7,7 +7,10 @@ import { CourtType } from '../types'
  */
 export const COURT_DIMENSIONS: Record<CourtType, { width: number; height: number }> = {
   // Shorter than the half-court artwork on purpose — see COURT_IMAGE_SIZE.
-  half: { width: 474, height: 330 },
+  // 339, not 330: the artwork gained a strip of inbounds room above the
+  // baseline, which pushed every marking down 9 units. Growing the crop by the
+  // same 9 keeps exactly as much court in view at the far end as before.
+  half: { width: 474, height: 339 },
   full: { width: 1234, height: 700 },
 }
 
@@ -21,14 +24,33 @@ export const COURT_DIMENSIONS: Record<CourtType, { width: number; height: number
  * source-bitmap pixels) keeps the court's proportions exact.
  */
 export const COURT_IMAGE_SIZE: Record<CourtType, { width: number; height: number }> = {
-  half: { width: 474, height: 442 },
+  // The files are 2x these figures (948x920, 2468x1400); court units are the
+  // artwork at 1x, so both courts stay in the coordinate space they always had.
+  half: { width: 474, height: 460 },
   full: { width: 1234, height: 700 },
 }
 
-/** Player token radius, in court units. Shared so the ball can be sized and spaced against it. */
+/**
+ * Default player token radius, in court units. The live value is a setting now
+ * (`settings.playerRadius`), so this is only the fallback and the basis for the
+ * layout constants below — those stay fixed on purpose, see SPOT_CLEARANCE.
+ */
 export const PLAYER_TOKEN_RADIUS = 17
 
-/** Two tokens closer than this read as one blob, so a spot that close is "taken". */
+/**
+ * Full court is drawn at a larger coordinate scale than half court, so tokens
+ * are bumped to keep their apparent size roughly constant between the two.
+ */
+export function playerTokenRadius(radius: number, courtType: CourtType): number {
+  return radius * (courtType === 'full' ? 1.5 : 1)
+}
+
+/**
+ * Two tokens closer than this read as one blob, so a spot that close is "taken".
+ * Deliberately pinned to the default radius rather than the live setting: it is
+ * a placement rule, and making it follow the size slider would reshuffle players
+ * on the court while the coach is dragging the slider.
+ */
 export const SPOT_CLEARANCE = PLAYER_TOKEN_RADIUS * 2.5
 
 /**
@@ -63,18 +85,13 @@ export const BALL_RADIUS = PLAYER_TOKEN_RADIUS / 2
 /** The ball's orange. Shared so the puck, its drawn path, and the possession ring all read as the same object. */
 export const BALL_COLOR = '#e0703a'
 
-/** Ball radius for a size setting expressed as a multiple of the player token. */
-export function ballRadius(scale: number): number {
-  return PLAYER_TOKEN_RADIUS * scale
-}
-
 /**
  * Smallest distance from a player's centre the ball is allowed to rest, so the
- * two never overlap. Depends on the ball's current size, so it's a function
- * rather than a constant baked in at import time.
+ * two never overlap. Depends on both current sizes, so it's a function rather
+ * than a constant baked in at import time.
  */
-export function ballMinGap(radius: number): number {
-  return PLAYER_TOKEN_RADIUS + radius + 2
+export function ballMinGap(radius: number, playerRadius: number = PLAYER_TOKEN_RADIUS): number {
+  return playerRadius + radius + 2
 }
 
 export const COURT_IMAGE_SRC: Record<CourtType, string> = {

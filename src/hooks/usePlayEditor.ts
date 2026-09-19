@@ -29,7 +29,7 @@ import {
   PLAYER_TOKEN_RADIUS,
   SPOT_CLEARANCE,
   ballMinGap,
-  ballRadius,
+  playerTokenRadius,
 } from '../lib/court'
 import { Settings, settingsStore } from '../lib/settingsStore'
 
@@ -70,12 +70,14 @@ const DEFAULT_BALL_OFFSET: Point = { x: ballMinGap(BALL_RADIUS), y: 0 }
  * each other (different aspect ratio, different basket placement).
  */
 const DEFAULT_SPOTS: Record<CourtType, Point[]> = {
+  // Half-court values are the originals plus 9: the artwork gained a strip of
+  // inbounds room above the baseline, moving every marking down by that much.
   half: [
-    { x: 237, y: 268 }, // top of the arc
-    { x: 110, y: 230 }, // left wing
-    { x: 364, y: 230 }, // right wing
-    { x: 150, y: 92 }, // left post
-    { x: 320, y: 92 }, // right post
+    { x: 237, y: 277 }, // top of the arc
+    { x: 110, y: 239 }, // left wing
+    { x: 364, y: 239 }, // right wing
+    { x: 150, y: 101 }, // left post
+    { x: 320, y: 101 }, // right post
   ],
   full: [
     { x: 820, y: 353 }, // top of the arc, attacking the right basket
@@ -233,7 +235,9 @@ export function usePlayEditor() {
 
   /** Display settings, loaded once from localStorage and written through on change. */
   const [settings, setSettings] = useState<Settings>(() => settingsStore.get())
-  const currentBallRadius = ballRadius(settings.ballScale)
+  // Absolute court units now — the ball no longer tracks the player token size.
+  const currentBallRadius = settings.ballRadius
+  const currentPlayerRadius = playerTokenRadius(settings.playerRadius, courtType)
   const rafRef = useRef<number | null>(null)
   const lastTsRef = useRef<number | null>(null)
 
@@ -549,9 +553,9 @@ export function usePlayEditor() {
     if (len < 0.001) {
       dx = DEFAULT_BALL_OFFSET.x
       dy = DEFAULT_BALL_OFFSET.y
-    } else if (len < ballMinGap(currentBallRadius)) {
-      dx = (dx / len) * ballMinGap(currentBallRadius)
-      dy = (dy / len) * ballMinGap(currentBallRadius)
+    } else if (len < ballMinGap(currentBallRadius, currentPlayerRadius)) {
+      dx = (dx / len) * ballMinGap(currentBallRadius, currentPlayerRadius)
+      dy = (dy / len) * ballMinGap(currentBallRadius, currentPlayerRadius)
     }
 
     const fromId = ballHolderId
@@ -575,7 +579,7 @@ export function usePlayEditor() {
     setBallHolderId(closest.id)
     setBallOffset({ x: dx, y: dy })
     setBallHint(null)
-  }, [ballGesture, players, ballHolderId, ballOffset, restingPositions, nextSeq, currentBallRadius])
+  }, [ballGesture, players, ballHolderId, ballOffset, restingPositions, nextSeq, currentBallRadius, currentPlayerRadius])
 
   const dismissBallHint = useCallback(() => setBallHint(null), [])
 
@@ -588,17 +592,27 @@ export function usePlayEditor() {
    * the resting offset is pushed back out to the new minimum gap right away
    * rather than waiting for the next drag.
    */
-  const setBallScale = useCallback((value: number) => {
-    const next = settingsStore.save({ ...settings, ballScale: value })
-    setSettings(next)
-    const gap = ballMinGap(ballRadius(next.ballScale))
+  const pushBallClear = useCallback((gap: number) => {
     setBallOffset((offset) => {
       const len = Math.hypot(offset.x, offset.y)
       if (len >= gap) return offset
       if (len < 0.001) return { x: gap, y: 0 }
       return { x: (offset.x / len) * gap, y: (offset.y / len) * gap }
     })
-  }, [settings])
+  }, [])
+
+  const setBallRadius = useCallback((value: number) => {
+    const next = settingsStore.save({ ...settings, ballRadius: value })
+    setSettings(next)
+    pushBallClear(ballMinGap(next.ballRadius, playerTokenRadius(next.playerRadius, courtType)))
+  }, [settings, courtType, pushBallClear])
+
+  /** Same reasoning as the ball: a bigger token can swallow a puck already at rest. */
+  const setPlayerRadius = useCallback((value: number) => {
+    const next = settingsStore.save({ ...settings, playerRadius: value })
+    setSettings(next)
+    pushBallClear(ballMinGap(next.ballRadius, playerTokenRadius(next.playerRadius, courtType)))
+  }, [settings, courtType, pushBallClear])
 
   /**
    * Hands the ball to a player directly — this sets who has it *at the start*
@@ -1133,8 +1147,10 @@ export function usePlayEditor() {
   return {
     settings,
     ballRadius: currentBallRadius,
+    playerRadius: currentPlayerRadius,
     setMaxVisibleLines,
-    setBallScale,
+    setBallRadius,
+    setPlayerRadius,
     playId,
     playName,
     setPlayName,

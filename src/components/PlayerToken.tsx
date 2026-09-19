@@ -5,7 +5,7 @@ import { pulse } from '../lib/pulse'
 import { CourtType, Player } from '../types'
 import { EditorMode } from '../hooks/usePlayEditor'
 import { useHTMLImage } from '../hooks/useHTMLImage'
-import { BALL_COLOR, COURT_DIMENSIONS, PLAYER_TOKEN_RADIUS, touchRadius } from '../lib/court'
+import { BALL_COLOR, COURT_DIMENSIONS, touchRadius } from '../lib/court'
 
 interface Props {
   player: Player
@@ -13,6 +13,8 @@ interface Props {
   hasBall: boolean
   mode: EditorMode
   courtType: CourtType
+  /** Token radius in court units, already carrying the full-court size bump. */
+  radius: number
   /** Court display scale, so the grab area can stay a constant size in screen pixels. */
   scale: number
   onSelect: (id: string) => void
@@ -40,17 +42,18 @@ export default function PlayerToken({
   hasBall,
   mode,
   courtType,
+  radius,
   scale,
   onSelect,
   onMove,
   onDragStateChange,
   onDrawStart,
 }: Props) {
-  // Full court is a much wider coordinate space than half court, so it gets
-  // scaled down more to fit the screen — bump token size to compensate, or
-  // players read as too small to see at a glance.
+  // `radius` arrives already bumped for full court (see `playerTokenRadius`).
+  // The label keeps its own scale factor: type size follows the court, not the
+  // coach's token-size preference, or a large token would drag the name out of
+  // proportion with everything else on the board.
   const sizeScale = courtType === 'full' ? 1.50 : 1
-  const radius = PLAYER_TOKEN_RADIUS * sizeScale
   const isPositionMode = mode === 'position'
 
   // The name sits under the token, and the stage clips — so near the bottom edge

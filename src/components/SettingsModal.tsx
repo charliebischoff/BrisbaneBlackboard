@@ -1,23 +1,28 @@
 import { useEffect, useState } from 'react'
 import {
   Settings,
-  BALL_SCALE_STEP,
-  MAX_BALL_SCALE,
+  BALL_RADIUS_STEP,
+  MAX_BALL_RADIUS,
+  MAX_PLAYER_RADIUS,
   MAX_VISIBLE_LINES_LIMIT,
-  MIN_BALL_SCALE,
+  MIN_BALL_RADIUS,
+  MIN_PLAYER_RADIUS,
   MIN_VISIBLE_LINES,
+  PLAYER_RADIUS_STEP,
 } from '../lib/settingsStore'
 
 interface Props {
   settings: Settings
   onMaxVisibleLinesChange: (value: number) => void
-  onBallScaleChange: (value: number) => void
+  onBallRadiusChange: (value: number) => void
+  onPlayerRadiusChange: (value: number) => void
   onClose: () => void
 }
 
 interface SliderProps {
   label: string
-  hint: string
+  /** Optional — the size sliders read clearly enough from their label and value alone. */
+  hint?: string
   value: number
   min: number
   max: number
@@ -49,7 +54,9 @@ function StepSlider({
         <span className="font-display text-lg uppercase tracking-wide">{label}</span>
         <span className="font-display text-lg text-accent">{display}</span>
       </span>
-      <span className="block text-xs text-court-line/40 mb-3">{hint}</span>
+      {/* The gap above the track lives on whichever element is last — the hint
+          when there is one, the input itself when there isn't. */}
+      {hint && <span className="block text-xs text-court-line/40 mb-3">{hint}</span>}
       <input
         type="range"
         min={min}
@@ -58,7 +65,7 @@ function StepSlider({
         value={value}
         onChange={(e) => onChange(Number(e.target.value))}
         onPointerDown={onDragStart}
-        className="settings-slider w-full"
+        className={`settings-slider w-full ${hint ? '' : 'mt-3'}`}
       />
     </label>
   )
@@ -72,11 +79,12 @@ function StepSlider({
 export default function SettingsModal({
   settings,
   onMaxVisibleLinesChange,
-  onBallScaleChange,
+  onBallRadiusChange,
+  onPlayerRadiusChange,
   onClose,
 }: Props) {
   /**
-   * Ball size is the one setting whose effect is invisible behind this sheet,
+   * The size sliders are the settings whose effect is invisible behind this sheet,
    * so while it's being dragged the sheet all but disappears and the slider
    * itself drops back too — enough to aim with, little enough to see the ball
    * change size on the court underneath. Opacity doesn't nest here: the fade is
@@ -96,7 +104,7 @@ export default function SettingsModal({
     }
   }, [isSizing])
 
-  /** What everything except the ball-size slider fades to during that drag. */
+  /** What everything except the slider being dragged fades to during that drag. */
   const dimmed = isSizing ? 'opacity-5' : 'opacity-100'
 
   return (
@@ -136,18 +144,31 @@ export default function SettingsModal({
             className={dimmed}
           />
 
+          {/* Both sizes are absolute now. The ball used to be a fraction of a
+              player token, which meant this slider moved whenever the token did
+              — and on full court, where tokens get a 1.5x bump the ball never
+              got, the percentage it showed was simply wrong. */}
           <StepSlider
             label="Ball size"
-            hint="From half a player token up to a full one."
-            value={settings.ballScale}
-            min={MIN_BALL_SCALE}
-            max={MAX_BALL_SCALE}
-            step={BALL_SCALE_STEP}
-            // Shown as a share of a player token, which is what the slider's
-            // two ends actually mean — the raw 0.5–1 multiplier means nothing
-            // to a coach.
-            display={`${Math.round(settings.ballScale * 100)}% of a player`}
-            onChange={onBallScaleChange}
+            value={settings.ballRadius}
+            min={MIN_BALL_RADIUS}
+            max={MAX_BALL_RADIUS}
+            step={BALL_RADIUS_STEP}
+            // Diameter, not radius — it's the width a coach sees on the board.
+            display={`${Math.round(settings.ballRadius * 2)}`}
+            onChange={onBallRadiusChange}
+            className={isSizing ? 'opacity-50' : 'opacity-100'}
+            onDragStart={() => setIsSizing(true)}
+          />
+
+          <StepSlider
+            label="Player size"
+            value={settings.playerRadius}
+            min={MIN_PLAYER_RADIUS}
+            max={MAX_PLAYER_RADIUS}
+            step={PLAYER_RADIUS_STEP}
+            display={`${Math.round(settings.playerRadius * 2)}`}
+            onChange={onPlayerRadiusChange}
             className={isSizing ? 'opacity-50' : 'opacity-100'}
             onDragStart={() => setIsSizing(true)}
           />

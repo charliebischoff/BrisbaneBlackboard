@@ -114,7 +114,8 @@ export default function App() {
         <SettingsModal
           settings={editor.settings}
           onMaxVisibleLinesChange={editor.setMaxVisibleLines}
-          onBallScaleChange={editor.setBallScale}
+          onBallRadiusChange={editor.setBallRadius}
+          onPlayerRadiusChange={editor.setPlayerRadius}
           onClose={() => setIsSettingsOpen(false)}
         />
       )}

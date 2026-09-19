@@ -62,11 +62,12 @@ export default function CourtEditor({ editor }: Props) {
   const scale = useResponsiveScale(containerRef, COURT_WIDTH, COURT_HEIGHT)
 
   /**
-   * Pointer position in court units. Clamped to the court itself: a stroke that
-   * ran off the edge would leave the player's resting position (the end of their
-   * route) outside the Stage, which clips — an invisible token can never be
-   * pressed again, and erasing banks the off-court spot rather than recovering it.
-   * Kept here so route drawing and ball dragging are bounded by the same rule.
+   * Pointer position in court units, clamped to what the stage actually shows:
+   * a stroke that ran off the edge would leave the player's resting position
+   * (the end of their route) outside the Stage, which clips — an invisible token
+   * can never be pressed again, and erasing banks the off-court spot rather than
+   * recovering it. Kept here so route drawing and ball dragging are bounded by
+   * the same rule.
    */
   function stagePoint(stage: Konva.Stage): { x: number; y: number } | null {
     const pointer = stage.getPointerPosition()
@@ -219,6 +220,7 @@ export default function CourtEditor({ editor }: Props) {
               hasBall={editor.ballHolderId === player.id}
               mode={editor.mode}
               courtType={editor.courtType}
+              radius={editor.playerRadius}
               scale={scale}
               onSelect={editor.selectPlayer}
               onMove={editor.movePlayer}
