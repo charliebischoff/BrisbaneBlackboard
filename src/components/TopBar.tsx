@@ -1,4 +1,3 @@
-import { useState } from 'react'
 import { CourtType } from '../types'
 import { FlipAxis } from '../lib/routeGeometry'
 
@@ -9,6 +8,8 @@ interface Props {
   onOpenSettings: () => void
   onClearRoutes: () => void
   onFlip: (axis: FlipAxis) => void
+  /** Owned by App: collapsing also changes the root layout axis and the court's padding. */
+  onToggleCollapse: () => void
 }
 
 /**
@@ -89,20 +90,24 @@ function FlipIcon({ axis }: { axis: FlipAxis }) {
 }
 
 /**
- * Chevron for the collapse toggle. It points the way the bar is about to go:
- * left when expanded (the rail slides off the left edge), right when collapsed.
- * At `lg` the same glyph is turned a quarter turn so it points up/down instead,
- * which is the direction the horizontal bar actually moves.
+ * Chevron for the collapse toggle. It always points the way the chrome is about
+ * to travel, which is the only reading that stays true in both states:
+ *
+ *   below `lg`   expanded → left  (the rail shrinks off the left edge)
+ *                collapsed → right (the rail comes back out to the right)
+ *   at `lg`      expanded → up    (the horizontal bar folds up off the top)
+ *                collapsed → down (the bar drops back down from the top)
+ *
+ * The `lg:` override lands in a media query, which Tailwind emits after the
+ * unprefixed utilities, so it wins regardless of the order written here — the
+ * ambiguity to avoid is two `rotate-*` in the *same* query.
  */
 function ChevronIcon({ collapsed }: { collapsed: boolean }) {
   return (
     <svg
       viewBox="0 0 24 24"
-      // One branch, not a base + override: both would be `rotate-*` utilities in
-      // the same media query, and CSS source order would decide the winner
-      // rather than the order they're written in here.
       className={`w-4 h-4 transition-transform duration-150 ${
-        collapsed ? 'rotate-180 lg:rotate-[270deg]' : 'lg:rotate-90'
+        collapsed ? 'rotate-180 lg:rotate-[-90deg]' : 'lg:rotate-90'
       }`}
       fill="none"
       stroke="currentColor"
@@ -112,6 +117,56 @@ function ChevronIcon({ collapsed }: { collapsed: boolean }) {
     >
       <path d="M15 5 8 12l7 7" />
     </svg>
+  )
+}
+
+/**
+ * The collapse/expand toggle, shared by the two places it appears: inside the
+ * expanded bar, and floating over the court once the bar is gone.
+ *
+ * The floating form is a separate base string rather than overrides layered on
+ * `ICON_CAP` — `bg-white/50` vs `bg-white` are the same utility in the same
+ * media query, so which one won would be decided by Tailwind's output order, not
+ * by the order written here.
+ *
+ * It drops the cap's side face: a hard grey ledge reads as a rendering artifact
+ * when it sits on court artwork rather than on the black bar. With no face to
+ * seat onto there is nothing to drop into either, so the press feedback becomes
+ * the fill going opaque instead. Translucent white keeps the court lines behind
+ * it legible while still separating the glyph from them.
+ */
+export function CollapseToggle({
+  isCollapsed,
+  onToggleCollapse,
+  variant = 'bar',
+}: {
+  isCollapsed: boolean
+  onToggleCollapse: () => void
+  variant?: 'bar' | 'floating'
+}) {
+  return (
+    <button
+      onClick={onToggleCollapse}
+      aria-expanded={!isCollapsed}
+      aria-label={isCollapsed ? 'Expand toolbar' : 'Collapse toolbar'}
+      className={
+        variant === 'bar'
+          ? ICON_CAP
+          : // Not built on CAP: that constant hard-codes the press *drop*, and
+            // cancelling it would mean two `active:translate-y-*` in the same
+            // media query. Only the pieces that still apply are repeated.
+            'rounded-md text-ink-900 flex items-center justify-center ' +
+            'transition-all duration-75 ' +
+            'w-[28px] h-[28px] lg:w-[64px] lg:h-[32px] ' +
+            // Sits in the court's own top-left corner, inside the safe-area
+            // insets the collapsed rail used to hold it clear of.
+            'absolute z-10 top-[max(0.25rem,env(safe-area-inset-top))] ' +
+            'left-[max(0.25rem,env(safe-area-inset-left))] ' +
+            'bg-white/50 backdrop-blur-[2px] active:bg-white'
+      }
+    >
+      <ChevronIcon collapsed={isCollapsed} />
+    </button>
   )
 }
 
@@ -139,22 +194,8 @@ export default function TopBar({
   onOpenSettings,
   onClearRoutes,
   onFlip,
+  onToggleCollapse,
 }: Props) {
-  // Session-only on purpose: the bar is where every control lives, so starting a
-  // session with it hidden would strand anyone who collapsed it and forgot.
-  const [isCollapsed, setIsCollapsed] = useState(false)
-
-  const toggle = (
-    <button
-      onClick={() => setIsCollapsed((v) => !v)}
-      aria-expanded={!isCollapsed}
-      aria-label={isCollapsed ? 'Expand toolbar' : 'Collapse toolbar'}
-      className={ICON_CAP}
-    >
-      <ChevronIcon collapsed={isCollapsed} />
-    </button>
-  )
-
   return (
     // Two shapes, one markup. At `lg` this is the horizontal bar it has always
     // been: no fixed height, the 32px caps set it, and the padding holds
@@ -186,14 +227,8 @@ export default function TopBar({
         // that is larger, same as the left edge below.
         '[padding-top:max(0.5rem,env(safe-area-inset-top))] ' +
         '[padding-left:max(0.25rem,env(safe-area-inset-left))] ' +
-        (isCollapsed
-          ? // One column, one cap. `self-start` matters only at `lg`: the bar is
-            // a flex child of a column there, so without it a collapsed bar
-            // still stretches the full width as a black strip.
-            'grid-cols-1 w-[calc(28px+max(0.25rem,env(safe-area-inset-left)))] ' +
-            'lg:flex lg:w-auto lg:self-start lg:pl-3.5 lg:pr-2 '
-          : 'grid-cols-2 w-[calc(56px+max(0.25rem,env(safe-area-inset-left)))] ' +
-            'lg:flex lg:items-center lg:w-auto lg:gap-3 lg:pl-3.5 lg:pr-2 ')
+        'grid-cols-2 w-[calc(56px+max(0.25rem,env(safe-area-inset-left)))] ' +
+        'lg:flex lg:items-center lg:w-auto lg:gap-3 lg:pl-3.5 lg:pr-2'
       }
     >
       {/* `contents` below `lg` so the caps are direct grid items of the rail;
@@ -206,14 +241,8 @@ export default function TopBar({
           expanding does not shove the court tabs off centre: the flank is one
           flex-1 unit either way. It is the first item in both shapes, which puts
           it top-left of the bar and at the head of the rail. */}
-      <span
-        className={
-          'contents lg:flex lg:items-center ' + (isCollapsed ? '' : 'lg:flex-1 lg:gap-3')
-        }
-      >
-        {toggle}
-        {!isCollapsed && (
-          <>
+      <span className="contents lg:flex lg:items-center lg:flex-1 lg:gap-3">
+        <CollapseToggle isCollapsed={false} onToggleCollapse={onToggleCollapse} />
         <button onClick={onClearRoutes} aria-label="Erase all lines" className={`${ICON_CAP} text-base`}>
           R
         </button>
@@ -239,12 +268,9 @@ export default function TopBar({
         ) : (
           <span aria-hidden className={`${ICON_CAP} invisible lg:hidden`} />
         )}
-          </>
-        )}
       </span>
 
-      {!isCollapsed &&
-        TABS.map((tab) => {
+      {TABS.map((tab) => {
         const isActive = courtType === tab.value
         return (
           <button
@@ -259,7 +285,6 @@ export default function TopBar({
         )
       })}
 
-      {!isCollapsed && (
       <span className="contents lg:flex-1 lg:flex lg:items-center lg:justify-end lg:gap-3">
         <button onClick={onOpenRoster} aria-label="Roster" className={ICON_CAP}>
           <RosterIcon />
@@ -268,7 +293,6 @@ export default function TopBar({
           <SettingsIcon />
         </button>
       </span>
-      )}
     </header>
   )
 }

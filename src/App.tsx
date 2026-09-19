@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { usePlayEditor } from './hooks/usePlayEditor'
 import CourtEditor from './components/CourtEditor'
-import TopBar from './components/TopBar'
+import TopBar, { CollapseToggle } from './components/TopBar'
 import RosterModal from './components/RosterModal'
 import SettingsModal from './components/SettingsModal'
 import RotatePrompt from './components/RotatePrompt'
@@ -12,6 +12,12 @@ export default function App() {
   const updateReady = useAppUpdate()
   const [isRosterOpen, setIsRosterOpen] = useState(false)
   const [isSettingsOpen, setIsSettingsOpen] = useState(false)
+  // Lives here rather than inside TopBar because collapsing is not just about
+  // the bar: it also flips the root layout axis and drops the court's padding,
+  // which is where the extra court size actually comes from. Session-only on
+  // purpose — starting a session with every control hidden would strand anyone
+  // who collapsed it and forgot.
+  const [isBarCollapsed, setIsBarCollapsed] = useState(false)
   // Dismissing costs nothing: the waiting worker activates by itself the next
   // time the app is fully closed and reopened. So "Later" means the rest of this
   // session rather than a snooze — a timed reminder's only real effect would be
@@ -40,22 +46,67 @@ export default function App() {
     // near-square court on a 2.17:1 phone screen is height-bound, and spending
     // the surplus width on chrome buys back the scarce height. h-dvh rather
     // than h-screen because 100vh is wrong on iOS; identical on iPad.
-    <div className="h-dvh w-screen bg-ink-900 flex flex-row lg:flex-col overflow-hidden">
-      <TopBar
-        courtType={editor.courtType}
-        onCourtTypeChange={editor.setCourtType}
-        onOpenRoster={() => setIsRosterOpen(true)}
-        onOpenSettings={() => setIsSettingsOpen(true)}
-        onClearRoutes={editor.clearAllRoutes}
-        onFlip={editor.flipBoard}
-      />
+    //
+    // Collapsed there is no bar in the flow at all, so the axis is moot — the
+    // court is the only child and takes the whole box. That is stronger than the
+    // old collapsed rail, which still charged the court ~68px of width on a
+    // tablet; the toggle now floats over the court instead (see <main>).
+    <div
+      className={`h-dvh w-screen bg-ink-900 flex overflow-hidden ${
+        isBarCollapsed ? 'flex-row' : 'flex-row lg:flex-col'
+      }`}
+    >
+      {/* Collapsed, the bar is not rendered at all — its only surviving control
+          is the toggle, and that moves inside <main> as an overlay so it costs
+          the court no layout space in either dimension. */}
+      {!isBarCollapsed && (
+        <TopBar
+          onToggleCollapse={() => setIsBarCollapsed((v) => !v)}
+          courtType={editor.courtType}
+          onCourtTypeChange={editor.setCourtType}
+          onOpenRoster={() => setIsRosterOpen(true)}
+          onOpenSettings={() => setIsSettingsOpen(true)}
+          onClearRoutes={editor.clearAllRoutes}
+          onFlip={editor.flipBoard}
+        />
+      )}
 
       {/* `lg:` not `md:` — Tailwind's md is 768px, so a landscape phone (874px)
           was already taking the 24px padding, costing 48px of a 402px screen.
           The env() insets clear the home indicator and the right-hand notch
           margin, and are reset at `lg:` so the iPad court keeps its exact size. */}
-      <main className="relative flex-1 min-h-0 min-w-0 p-3 lg:p-6 pb-[max(0.75rem,env(safe-area-inset-bottom))] pr-[max(0.75rem,env(safe-area-inset-right))] lg:pb-6 lg:pr-6">
+      {/* Collapsed, the padding goes too. On a landscape phone the rail already
+          costs no height, so this is the only vertical space left to reclaim
+          there; on a tablet it stacks with the bar height freed above. The
+          safe-area floors stay in both states — the home indicator and the
+          right-hand notch margin still have to be cleared. */}
+      {/* The top edge is deliberately half the others. The bar above already
+          separates the court from the screen edge visually, and since the court
+          is height-bound in every real layout, padding there is lost court
+          size rather than breathing room. It isn't zero only because the bar's
+          caps draw a 3px side face outside their layout box. */}
+      <main
+        className={
+          'relative flex-1 min-h-0 min-w-0 ' +
+          (isBarCollapsed
+            ? // The left inset floor was the collapsed rail's job; with no rail
+              // it has to be held here instead.
+              'p-1 lg:p-2 pb-[max(0.25rem,env(safe-area-inset-bottom))] ' +
+              'pl-[max(0.25rem,env(safe-area-inset-left))] ' +
+              'pr-[max(0.25rem,env(safe-area-inset-right))] lg:pb-2 lg:pr-2 lg:pl-2'
+            : 'p-3 lg:p-6 pt-1.5 lg:pt-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] ' +
+              'pr-[max(0.75rem,env(safe-area-inset-right))] lg:pb-6 lg:pr-6')
+        }
+      >
         <CourtEditor editor={editor} />
+
+        {isBarCollapsed && (
+          <CollapseToggle
+            isCollapsed
+            variant="floating"
+            onToggleCollapse={() => setIsBarCollapsed((v) => !v)}
+          />
+        )}
 
         {ballHint && (
           <div className="absolute top-2 left-1/2 -translate-x-1/2 px-4 py-2 rounded-full bg-black/80 text-court-line text-sm font-body pointer-events-none">
