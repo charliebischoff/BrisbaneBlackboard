@@ -45,12 +45,7 @@ function writeRoster(roster: RosterPlayer[]): void {
 
 export const rosterStore = {
   getAll(): RosterPlayer[] {
-    return readRoster().sort((a, b) => {
-      if (a.number == null && b.number == null) return a.name.localeCompare(b.name)
-      if (a.number == null) return 1
-      if (b.number == null) return -1
-      return a.number - b.number
-    })
+    return readRoster().sort((a, b) => a.name.localeCompare(b.name))
   },
 
   add(player: RosterPlayer) {
