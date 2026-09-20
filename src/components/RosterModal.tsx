@@ -15,12 +15,17 @@ interface Props {
 
 const EMPTY_FORM = { name: '', number: '', position: '' }
 
+/** Which roster-editing tool is open, if any — mutually exclusive so only one occupies the footer/grid at a time. */
+type AdvancedMode = 'closed' | 'edit' | 'add'
+
 /**
  * Full-screen roster picker, laid out as a two-column grid. Each player card is
  * one big touch target that
  * toggles them on and off the court — adding and removing are the same gesture.
  * Roster editing itself (add / edit / delete / restore) is destructive, so it
- * lives behind the "Advanced roster editing" disclosure at the bottom.
+ * lives behind separate "Add player" and "Edit / delete" modes at the bottom —
+ * kept apart so neither the per-card edit controls nor the add form eat into
+ * screen space while you're using the other one.
  */
 export default function RosterModal({
   onCourtIds,
@@ -34,7 +39,7 @@ export default function RosterModal({
   const [form, setForm] = useState(EMPTY_FORM)
   const [editingId, setEditingId] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
-  const [showAdvanced, setShowAdvanced] = useState(false)
+  const [advancedMode, setAdvancedMode] = useState<AdvancedMode>('closed')
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null)
   const [confirmReset, setConfirmReset] = useState(false)
 
@@ -56,6 +61,14 @@ export default function RosterModal({
     setEditingId(null)
     setForm(EMPTY_FORM)
     setError(null)
+  }
+
+  /** Switches between Add / Edit-Delete / closed — always starts the new mode from a clean slate. */
+  function handleModeClick(mode: 'add' | 'edit') {
+    cancelEdit()
+    setConfirmDeleteId(null)
+    setConfirmReset(false)
+    setAdvancedMode((current) => (current === mode ? 'closed' : mode))
   }
 
   function handleSubmit() {
@@ -105,6 +118,11 @@ export default function RosterModal({
     setConfirmDeleteId(null)
     refresh()
   }
+
+  // The form covers both adding a new player and editing an existing one —
+  // it shows in Add mode, or the moment a specific player's Edit is clicked
+  // from Edit/Delete mode, regardless of which mode that leaves active.
+  const showForm = advancedMode === 'add' || editingId !== null
 
   return (
     <div className="fixed inset-0 z-50 bg-black/70 flex items-center justify-center">
@@ -160,7 +178,7 @@ export default function RosterModal({
                   {isOnCourt && <span className="shrink-0 w-2 h-2 rounded-full bg-accent" aria-label="On court" />}
                 </button>
 
-                {showAdvanced &&
+                {advancedMode === 'edit' && !editingId &&
                   (confirmDeleteId === player.id ? (
                     <div className="flex items-stretch gap-1.5">
                       <button
@@ -199,15 +217,26 @@ export default function RosterModal({
         </div>
 
         <div className="shrink-0 border-t border-ink-700 p-3">
-          <button
-            className="w-full min-h-[52px] rounded-lg bg-ink-800 text-court-line/60 text-sm uppercase tracking-wide font-display flex items-center justify-center gap-2"
-            onClick={() => setShowAdvanced((v) => !v)}
-          >
-            Advanced roster editing
-            <span>{showAdvanced ? '−' : '+'}</span>
-          </button>
+          <div className="flex gap-2">
+            <button
+              className={`flex-1 min-h-[52px] rounded-lg text-sm uppercase tracking-wide font-display transition-colors ${
+                advancedMode === 'add' ? 'bg-accent text-ink-900' : 'bg-ink-800 text-court-line/60'
+              }`}
+              onClick={() => handleModeClick('add')}
+            >
+              Add player
+            </button>
+            <button
+              className={`flex-1 min-h-[52px] rounded-lg text-sm uppercase tracking-wide font-display transition-colors ${
+                advancedMode === 'edit' ? 'bg-accent text-ink-900' : 'bg-ink-800 text-court-line/60'
+              }`}
+              onClick={() => handleModeClick('edit')}
+            >
+              Edit / Delete
+            </button>
+          </div>
 
-          {showAdvanced && (
+          {showForm && (
             <div className="mt-3 flex flex-col gap-3">
               <p className="text-xs uppercase tracking-wide text-court-line/50 font-display">
                 {editingId ? 'Edit player' : 'Add player'}
@@ -250,7 +279,11 @@ export default function RosterModal({
                   </button>
                 )}
               </div>
+            </div>
+          )}
 
+          {advancedMode !== 'closed' && (
+            <div className="mt-3">
               {confirmReset ? (
                 <div className="flex items-center gap-2 text-xs bg-ink-800 rounded-md px-3 py-2">
                   <span className="text-team-defense flex-1">
