@@ -64,6 +64,28 @@ export const PASS_CATCH_RADIUS = 38
 const DEFAULT_BALL_OFFSET: Point = { x: ballMinGap(BALL_RADIUS), y: 0 }
 
 /**
+ * How far the ball's final on-screen spot must stay from the court's edge, given
+ * the coach's current ball size — not a fixed constant, since that size is
+ * adjustable at runtime. A little beyond the ball's own radius so the whole
+ * circle clears the edge, not just its center.
+ */
+function ballEdgeMargin(ballRadius: number): number {
+  return ballRadius + 12
+}
+
+function clampToCourt(p: Point, courtType: CourtType, margin: number): Point {
+  const { width, height } = COURT_DIMENSIONS[courtType]
+  return {
+    x: Math.min(Math.max(p.x, margin), width - margin),
+    y: Math.min(Math.max(p.y, margin), height - margin),
+  }
+}
+
+/**
+ * Default 5-player spots, tuned by eye against each court image — these are
+ ...
+
+/**
  * Default 5-player spots, tuned by eye against each court image — these are
  * real pixel coordinates in that image's own space (see COURT_DIMENSIONS),
  * not a percentage, since the two courts aren't just scaled versions of
@@ -937,15 +959,16 @@ export function usePlayEditor() {
    * outside it the ball is simply held by whoever owns it at that moment.
    */
   const ballPosition = useMemo<Point | null>(() => {
-    const byId = new Map(renderPlayers.map((p) => [p.id, p]))
-    const at = (id: string | null): Point | null => {
-      const p = id ? byId.get(id) : undefined
-      return p ? { x: p.x, y: p.y } : null
-    }
-    const held = (id: string | null): Point | null => {
-      const pos = at(id)
-      return pos ? { x: pos.x + ballOffset.x, y: pos.y + ballOffset.y } : null
-    }
+      const margin = ballEdgeMargin(currentBallRadius)
+      const byId = new Map(renderPlayers.map((p) => [p.id, p]))
+      const at = (id: string | null): Point | null => {
+        const p = id ? byId.get(id) : undefined
+        return p ? { x: p.x, y: p.y } : null
+      }
+      const held = (id: string | null): Point | null => {
+        const pos = at(id)
+        return pos ? clampToCourt({ x: pos.x + ballOffset.x, y: pos.y + ballOffset.y }, courtType, margin) : null
+      }
 
     /**
      * Where the ball attaches to one end of a throw. `ballOffset` is a single
@@ -967,9 +990,8 @@ export function usePlayEditor() {
       // on the timeline.
       const start = players.find((p) => p.id === id)
       const rest = playerPositionsAt(tAt).get(id) ?? (start ? { x: start.x, y: start.y } : undefined)
-      if (!anchor || !rest) return { x: pos.x + ballOffset.x, y: pos.y + ballOffset.y }
-      return { x: pos.x + (anchor.x - rest.x), y: pos.y + (anchor.y - rest.y) }
-    }
+      if (!anchor || !rest) return clampToCourt({ x: pos.x + ballOffset.x, y: pos.y + ballOffset.y }, courtType, margin)
+      return clampToCourt({ x: pos.x + (anchor.x - rest.x), y: pos.y + (anchor.y - rest.y) },courtType,margin,)}
 
     const throws = timeline.filter((e) => e.kind === 'transfer')
     if (throws.length === 0) return held(ballHolderId)
@@ -1000,7 +1022,7 @@ export function usePlayEditor() {
     }
     const last = throws[throws.length - 1]
     return onThrow(last.toId!, last.points, 1, last.tStart)
-  }, [renderPlayers, players, timeline, ballHolderId, ballOffset, playerPositionsAt, playbackT])
+  }, [renderPlayers, players, timeline, ballHolderId, ballOffset, playerPositionsAt, playbackT, courtType, currentBallRadius])
 
   // --- Save / load ----------------------------------------------------
 
