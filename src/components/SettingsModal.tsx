@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { CourtType } from '../types'
 import {
   Settings,
   BALL_RADIUS_STEP,
@@ -13,6 +14,8 @@ import {
 
 interface Props {
   settings: Settings
+  /** Which court's ballRadius/playerRadius slot the two size sliders read and write. */
+  courtType: CourtType
   onMaxVisibleLinesChange: (value: number) => void
   onBallRadiusChange: (value: number) => void
   onPlayerRadiusChange: (value: number) => void
@@ -78,6 +81,7 @@ function StepSlider({
  */
 export default function SettingsModal({
   settings,
+  courtType,
   onMaxVisibleLinesChange,
   onBallRadiusChange,
   onPlayerRadiusChange,
@@ -144,18 +148,20 @@ export default function SettingsModal({
             className={dimmed}
           />
 
-          {/* Both sizes are absolute now. The ball used to be a fraction of a
-              player token, which meant this slider moved whenever the token did
-              — and on full court, where tokens get a 1.5x bump the ball never
-              got, the percentage it showed was simply wrong. */}
+          {/* Both sizes are absolute now, and stored separately per court type —
+              the ball used to be a fraction of a player token (so this slider
+              moved whenever the token did) and shared between half and full
+              court despite the two being drawn at different coordinate scales.
+              `courtType` picks which of that pair this sheet is currently
+              showing; it always matches whichever court is on screen behind it. */}
           <StepSlider
             label="Ball size"
-            value={settings.ballRadius}
+            value={settings.ballRadius[courtType]}
             min={MIN_BALL_RADIUS}
             max={MAX_BALL_RADIUS}
             step={BALL_RADIUS_STEP}
             // Diameter, not radius — it's the width a coach sees on the board.
-            display={`${Math.round(settings.ballRadius * 2)}`}
+            display={`${Math.round(settings.ballRadius[courtType] * 2)}`}
             onChange={onBallRadiusChange}
             className={isSizing ? 'opacity-50' : 'opacity-100'}
             onDragStart={() => setIsSizing(true)}
@@ -163,11 +169,11 @@ export default function SettingsModal({
 
           <StepSlider
             label="Player size"
-            value={settings.playerRadius}
+            value={settings.playerRadius[courtType]}
             min={MIN_PLAYER_RADIUS}
             max={MAX_PLAYER_RADIUS}
             step={PLAYER_RADIUS_STEP}
-            display={`${Math.round(settings.playerRadius * 2)}`}
+            display={`${Math.round(settings.playerRadius[courtType] * 2)}`}
             onChange={onPlayerRadiusChange}
             className={isSizing ? 'opacity-50' : 'opacity-100'}
             onDragStart={() => setIsSizing(true)}
