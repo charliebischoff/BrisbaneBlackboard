@@ -160,10 +160,24 @@ function flatToNested(flat: FlatSettings): Partial<Settings> {
  * whole reason this isn't a plain reset to defaults. Returns the *flat* shape —
  * `flatToNested` and `normalize` are applied by the caller, once.
  */
-function readLegacyV1(): FlatSettings | null {
-  const raw = localStorage.getItem(V1_STORAGE_KEY)
+/** A legacy blob that won't parse is treated as absent, so the next-oldest one
+ *  still gets its chance — otherwise a corrupt v2 would throw past v1 and reset
+ *  settings a coach could still have recovered. */
+function parseOrNull<T>(raw: string | null): T | null {
   if (!raw) return null
-  const old = JSON.parse(raw) as { maxVisibleLines?: number; ballScale?: number }
+  try {
+    return JSON.parse(raw) as T
+  } catch (err) {
+    console.error('Ignoring unreadable legacy settings blob', err)
+    return null
+  }
+}
+
+function readLegacyV1(): FlatSettings | null {
+  const old = parseOrNull<{ maxVisibleLines?: number; ballScale?: number }>(
+    localStorage.getItem(V1_STORAGE_KEY),
+  )
+  if (!old) return null
   const scale = Number(old.ballScale)
   return {
     maxVisibleLines: Number(old.maxVisibleLines),
@@ -173,9 +187,7 @@ function readLegacyV1(): FlatSettings | null {
 }
 
 function readLegacyV2(): FlatSettings | null {
-  const raw = localStorage.getItem(V2_STORAGE_KEY)
-  if (!raw) return null
-  return JSON.parse(raw) as FlatSettings
+  return parseOrNull<FlatSettings>(localStorage.getItem(V2_STORAGE_KEY))
 }
 
 export const settingsStore = {

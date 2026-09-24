@@ -25,7 +25,14 @@ function readAll(): Play[] {
   try {
     const raw = localStorage.getItem(STORAGE_KEY)
     if (!raw) return []
-    return JSON.parse(raw) as Play[]
+    const parsed = JSON.parse(raw)
+    // Plays are pulled up mid-game with no network, so a single bad record must
+    // never cost the coach the whole list: anything that isn't a play-shaped
+    // object is dropped rather than allowed to throw out of a read.
+    if (!Array.isArray(parsed)) return []
+    return parsed.filter(
+      (p): p is Play => !!p && typeof p === 'object' && typeof (p as Play).id === 'string',
+    )
   } catch (err) {
     console.error('Failed to read plays from localStorage', err)
     return []
@@ -46,7 +53,9 @@ function writeAll(plays: Play[]): void {
 
 export const localPlayStore: PlayStore = {
   getAll() {
-    return readAll().sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
+    // `updatedAt` is coerced rather than assumed: it's the only field the sort
+    // touches, and a record saved by an older build may not carry one.
+    return readAll().sort((a, b) => String(b.updatedAt ?? '').localeCompare(String(a.updatedAt ?? '')))
   },
 
   save(play: Play) {
