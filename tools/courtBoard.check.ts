@@ -14,6 +14,7 @@
  * inside `usePlayEditor.setCourtType` is NOT covered here — only the pure logic.
  */
 import {
+  buildDefaultBoard,
   switchCourt,
   reconcileStash,
   type CourtBoard,
@@ -171,6 +172,55 @@ console.log('\n8. switching to the court already shown is a no-op')
   const s = switchCourt({}, 'half', 'half', cur, halfDefaults)
   eq('board unchanged', s.board, cur)
   eq('stash untouched', s.stash, {})
+}
+
+console.log('\n9. buildDefaultBoard: the reset a never-visited court starts as')
+{
+  const spots = [
+    { x: 10, y: 11 },
+    { x: 20, y: 21 },
+    { x: 30, y: 31 },
+  ]
+  const roster = [P('a'), P('b'), P('c')]
+  const got = buildDefaultBoard(roster, spots, 27, 'b')
+
+  eq('players land on spots in order', got.players.map((p) => [p.x, p.y]), [
+    [10, 11],
+    [20, 21],
+    [30, 31],
+  ])
+  eq('identity survives the move', got.players.map((p) => p.id), ['a', 'b', 'c'])
+  eq('team survives the move', got.players.map((p) => p.team), ['offense', 'offense', 'offense'])
+  eq('routes cleared', got.routes, [])
+  eq('transfers cleared', got.ballTransfers, [])
+  eq('seq reset', got.seq, 0)
+  eq('ball offset from the caller, y zeroed', got.ballOffset, { x: 27, y: 0 })
+  eq('possession carries over', got.ballHolderId, 'b')
+  eq('null possession stays null', buildDefaultBoard(roster, spots, 27, null).ballHolderId, null)
+  check('roster not mutated in place', roster[0].x === 0 && roster[0].y === 0)
+
+  // More players than spots: `i % spots.length` wraps, so the extras stack
+  // exactly on the first few. Pinning what it actually does, not endorsing it.
+  const many = [P('a'), P('b'), P('c'), P('d'), P('e')]
+  eq('extras wrap onto the first spots', buildDefaultBoard(many, spots, 27, null).players.map((p) => [p.x, p.y]), [
+    [10, 11],
+    [20, 21],
+    [30, 31],
+    [10, 11],
+    [20, 21],
+  ])
+}
+
+console.log('\n10. CourtBoard field set — tripwire for a field added but never applied')
+{
+  // `setCourtType` applies these one by one. Add a seventh field to CourtBoard
+  // and forget the matching setter and the board restores incomplete, silently.
+  // This fails the moment the shape changes, forcing a look at the apply step.
+  eq(
+    'exactly the six known fields',
+    Object.keys(buildDefaultBoard([P('a')], [{ x: 0, y: 0 }], 27, 'a')).sort(),
+    ['ballHolderId', 'ballOffset', 'ballTransfers', 'players', 'routes', 'seq'],
+  )
 }
 
 console.log(failures === 0 ? '\nALL PASS' : `\n${failures} FAILURE(S)`)

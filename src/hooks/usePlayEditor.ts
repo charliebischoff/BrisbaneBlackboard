@@ -21,7 +21,7 @@ import {
   pointAtFraction,
   routeEndPoint,
 } from '../lib/routeGeometry'
-import { CourtBoard, CourtStash, reconcileStash, switchCourt } from '../lib/courtBoard'
+import { buildDefaultBoard, CourtStash, reconcileStash, switchCourt } from '../lib/courtBoard'
 import { rosterStore } from '../lib/rosterStore'
 import { localPlayStore } from '../lib/storage'
 import {
@@ -367,18 +367,12 @@ export function usePlayEditor() {
     // and the incoming court has its own. Dropping the puck there after a switch
     // into a court set to large tokens would park it inside its carrier.
     const size = settings.sizes[type]
-    const spots = DEFAULT_SPOTS[type]
-    const defaults: CourtBoard = {
-      players: players.map((p, i) => {
-        const spot = spots[i % spots.length]
-        return { ...p, x: spot.x, y: spot.y }
-      }),
-      routes: [],
-      ballTransfers: [],
-      ballOffset: { x: ballMinGap(size.ballRadius, size.playerRadius), y: 0 },
+    const defaults = buildDefaultBoard(
+      players,
+      DEFAULT_SPOTS[type],
+      ballMinGap(size.ballRadius, size.playerRadius),
       ballHolderId,
-      seq: 0,
-    }
+    )
 
     const { stash, board } = switchCourt(
       courtStash.current,

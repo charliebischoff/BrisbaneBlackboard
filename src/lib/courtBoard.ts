@@ -39,6 +39,39 @@ export interface CourtBoard {
 /** Boards for courts that have been visited and left. Absent = never visited. */
 export type CourtStash = Partial<Record<CourtType, CourtBoard>>
 
+/**
+ * The board a court starts as when it has never been visited — the same reset
+ * that used to happen on every switch.
+ *
+ * The caller supplies `spots` and `ballOffsetX` rather than this module reaching
+ * for `DEFAULT_SPOTS` or the size settings, for the reason in the header: the
+ * coordinate-space knowledge stays in the editor hook and this stays testable.
+ *
+ * Possession carries over — the coach's chosen ball handler shouldn't change
+ * just because they looked at the other court.
+ */
+export function buildDefaultBoard(
+  players: Player[],
+  spots: Point[],
+  ballOffsetX: number,
+  ballHolderId: string | null,
+): CourtBoard {
+  return {
+    // Wraps if there are more players than spots, which stacks the extras
+    // exactly on top of the first few. Pre-existing — the old reset did the
+    // same — and not worked around here.
+    players: players.map((p, i) => {
+      const spot = spots[i % spots.length]
+      return { ...p, x: spot.x, y: spot.y }
+    }),
+    routes: [],
+    ballTransfers: [],
+    ballOffset: { x: ballOffsetX, y: 0 },
+    ballHolderId,
+    seq: 0,
+  }
+}
+
 /** Shallow-copies the arrays so a restored board can't be mutated through the stash. */
 function copy(board: CourtBoard): CourtBoard {
   return {
