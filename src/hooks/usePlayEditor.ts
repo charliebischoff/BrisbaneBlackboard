@@ -21,6 +21,7 @@ import {
   pointAtFraction,
   routeEndPoint,
 } from '../lib/routeGeometry'
+import { CourtBoard, CourtStash, reconcileStash, switchCourt } from '../lib/courtBoard'
 import { rosterStore } from '../lib/rosterStore'
 import { localPlayStore } from '../lib/storage'
 import {
@@ -290,6 +291,14 @@ export function usePlayEditor() {
   const nextSeq = useCallback(() => seqRef.current++, [])
 
   /**
+   * The board left behind on the court we're not looking at. A ref rather than
+   * state: nothing renders from it, and writing it must not trigger a re-render
+   * in the middle of a switch. Session-only by design — a reload starts fresh
+   * on both courts.
+   */
+  const courtStash = useRef<CourtStash>({})
+
+  /**
    * Keep stored lines bounded. The board only ever *shows* the last few
    * (the visible-lines setting, filtered at render), but state would otherwise
    * accumulate every stroke of a whole training session. Once past
@@ -340,39 +349,61 @@ export function usePlayEditor() {
 
   /**
    * Switching court types changes the coordinate space entirely (different
-   * aspect ratio, different basket placement) — a half-court formation
-   * doesn't translate to a sensible full-court one by simple rescaling.
-   * So this resets whoever's currently on court to that court type's
-   * default spots, and clears drawn routes (they were drawn against
-   * geometry that no longer applies). Roster selection itself is
-   * untouched — same players, fresh positions.
+   * aspect ratio, different basket placement) — a half-court formation doesn't
+   * translate to a sensible full-court one by simple rescaling, and this never
+   * attempts to. Instead each court keeps its own board: the one being left is
+   * stashed, and the one being entered is restored if it's been visited before,
+   * or laid out at that court's default spots if it hasn't.
+   *
+   * Only geometry is stashed. Transient UI — an in-flight gesture, the
+   * selection, the playback clock, the erase undo — is cleared on every switch
+   * regardless. `erasedSnapshot` especially: carrying it across would let the
+   * undo button restore the other court's lines.
    */
   const setCourtType = useCallback((type: CourtType) => {
     stopPlaybackRef.current()
-    setCourtTypeRaw(type)
-    setPlayers((prev) => {
-      const spots = DEFAULT_SPOTS[type]
-      return prev.map((p, i) => {
-        const spot = spots[i % spots.length]
-        return { ...p, x: spot.x, y: spot.y }
-      })
-    })
-    setRoutes([])
-    // Ball geometry was drawn against a court that no longer applies, same as routes.
-    setBallTransfers([])
-    seqRef.current = 0
+
     // Not `DEFAULT_BALL_OFFSET`: that's a fixed distance from the default sizes,
     // and the incoming court has its own. Dropping the puck there after a switch
     // into a court set to large tokens would park it inside its carrier.
     const size = settings.sizes[type]
-    setBallOffset({ x: ballMinGap(size.ballRadius, size.playerRadius), y: 0 })
+    const spots = DEFAULT_SPOTS[type]
+    const defaults: CourtBoard = {
+      players: players.map((p, i) => {
+        const spot = spots[i % spots.length]
+        return { ...p, x: spot.x, y: spot.y }
+      }),
+      routes: [],
+      ballTransfers: [],
+      ballOffset: { x: ballMinGap(size.ballRadius, size.playerRadius), y: 0 },
+      ballHolderId,
+      seq: 0,
+    }
+
+    const { stash, board } = switchCourt(
+      courtStash.current,
+      courtType,
+      type,
+      { players, routes, ballTransfers, ballOffset, ballHolderId, seq: seqRef.current },
+      defaults,
+    )
+    courtStash.current = stash
+
+    setCourtTypeRaw(type)
+    setPlayers(board.players)
+    setRoutes(board.routes)
+    setBallTransfers(board.ballTransfers)
+    setBallOffset(board.ballOffset)
+    setBallHolderId(board.ballHolderId)
+    seqRef.current = board.seq
+
     setBallGesture(null)
     setBallHint(null)
     setSelectedPlayerId(null)
     setDrawGesture(null)
     setPlaybackT(0)
     setErasedSnapshot(null)
-  }, [settings])
+  }, [settings, courtType, players, routes, ballTransfers, ballOffset, ballHolderId])
 
   // --- Flip -------------------------------------------------------------
 
@@ -493,6 +524,10 @@ export function usePlayEditor() {
         }),
     )
     const gone = (id: string) => !byId.has(id)
+    // The other court's stashed board needs the same treatment, or a player
+    // deleted here reappears the next time that court is opened — with no
+    // roster card left to remove them, still counting toward the 5-player cap.
+    courtStash.current = reconcileStash(courtStash.current, new Set(byId.keys()))
     setRoutes((prev) => prev.filter((r) => !gone(r.playerId)))
     setBallTransfers((prev) => prev.filter((t) => !gone(t.fromId) && !gone(t.toId)))
     setSelectedPlayerId((current) => (current && gone(current) ? null : current))
@@ -1127,6 +1162,11 @@ export function usePlayEditor() {
       setPlayId(play.id)
       setPlayName(play.name)
       setCourtTypeRaw(play.courtType ?? 'half')
+      // A load is a clean slate on both courts. Keeping the stash would mean
+      // switching courts after a load resurrects whatever was being drawn
+      // before it. Note this deliberately sets the court type *raw*, bypassing
+      // the stash-and-restore path in setCourtType.
+      courtStash.current = {}
       setPlayers(play.players)
       // Plays written before sequencing carry no order; stamp one from array order
       // here, and rebase the counter so newly drawn actions land after, not among,
@@ -1166,6 +1206,8 @@ export function usePlayEditor() {
     // Keep the current court type — a coach is usually drawing several
     // plays in the same context in one sitting.
     const fresh = buildDefaultPlayers(courtType)
+    // Same reasoning as loadPlay — a new play starts empty on both courts.
+    courtStash.current = {}
     setPlayId(uuid())
     setPlayName('Untitled Play')
     setPlayers(fresh)

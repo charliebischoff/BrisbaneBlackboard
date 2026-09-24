@@ -35,9 +35,18 @@ incoming pointer coordinates are divided by that scale. Never bake display scale
 into stored data.
 
 The two courts are not scaled versions of each other (different aspect ratio,
-different basket placement). `setCourtType` therefore deliberately resets on-court
-positions to that court's `DEFAULT_SPOTS` and clears routes; roster selection
-survives, geometry does not. Don't "fix" this by rescaling across court types.
+different basket placement), so geometry is **never** translated between them.
+Don't "fix" this by rescaling across court types.
+
+Each court instead keeps its own board. `setCourtType` stashes the court being
+left and restores the one being entered (`lib/courtBoard.ts` — pure, so it can be
+tested headlessly), falling back to that court's `DEFAULT_SPOTS` the first time a
+court is opened. The stash is session-only, is written once on exit and read once
+on entry, and carries `seqRef` with it — the authoring-order counter is shared by
+routes and transfers, so a board restored without it replays out of order. Three
+places must touch the stash: `loadPlay` and `newPlay` clear it, and
+`syncCourtWithRoster` reconciles it so a deleted player can't survive on the
+court you aren't looking at.
 
 **Routes.** A player's route is an ordered chain of `RouteSegment`s, each one
 freehand press-drag-release stroke in a single `LineType`
