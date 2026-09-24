@@ -56,8 +56,24 @@ const MAX_OFFENSE_ON_COURT = 5
 const MIN_POINT_SPACING = 4 // court units between recorded points while dragging — keeps arrays small
 const MIN_GESTURE_LENGTH = 6 // shorter than this, treat the press as a tap (select) not a draw
 
-/** How close a pass has to end to a player to count as reaching them. Exported — drag mode draws this radius. */
+/** Floor for how close a pass has to end to a player to count as reaching them. */
 export const PASS_CATCH_RADIUS = 38
+
+/**
+ * The catch radius at the coach's current player size. This used to be the flat
+ * constant above, which was safe only because tokens topped out at 26 — the
+ * catch zone was always outside the token, so nothing had to follow the slider.
+ * Full court now reaches 40, where a fixed 38 sits *inside* the token: the drop
+ * target is invisible, and a drop on the token's own edge fails the test.
+ *
+ * Unlike SPOT_CLEARANCE, following the size setting costs nothing here — this
+ * decides whether a drop lands, not where players stand, so it can't reshuffle
+ * the court mid-drag. The Math.max keeps half court (max 26 + 10 = 36) pinned to
+ * the old 38 across its whole range, so only full court's top end changes.
+ */
+export function passCatchRadius(playerRadius: number): number {
+  return Math.max(PASS_CATCH_RADIUS, playerRadius + 10)
+}
 
 /** Where the ball sits relative to its carrier until the coach drops it somewhere else. */
 const DEFAULT_BALL_OFFSET: Point = { x: ballMinGap(BALL_RADIUS), y: 0 }
@@ -565,7 +581,8 @@ export function usePlayEditor() {
       if (p.id === ballHolderId) continue
       const pos = restingPositions.get(p.id) ?? { x: p.x, y: p.y }
       const dist = Math.hypot(pos.x - drop.x, pos.y - drop.y)
-      if (dist <= PASS_CATCH_RADIUS && (!closest || dist < closest.dist)) closest = { id: p.id, dist, pos }
+      if (dist <= passCatchRadius(currentPlayerRadius) && (!closest || dist < closest.dist))
+        closest = { id: p.id, dist, pos }
     }
 
     if (!closest) {
@@ -739,11 +756,12 @@ export function usePlayEditor() {
         const route = routes.find((r) => r.playerId === p.id)
         const pos = routeEndPoint(route, { x: p.x, y: p.y })
         const dist = Math.hypot(pos.x - endPoint.x, pos.y - endPoint.y)
-        if (dist <= PASS_CATCH_RADIUS && (!closest || dist < closest.dist)) closest = { id: p.id, dist }
+        if (dist <= passCatchRadius(currentPlayerRadius) && (!closest || dist < closest.dist))
+          closest = { id: p.id, dist }
       }
       if (closest) setBallHolderId(closest.id)
     }
-  }, [drawGesture, lineType, players, routes, mode, ballHolderId, nextSeq])
+  }, [drawGesture, lineType, players, routes, mode, ballHolderId, nextSeq, currentPlayerRadius])
 
   const clearRoute = useCallback((playerId: string) => {
     setRoutes((prev) => prev.filter((r) => r.playerId !== playerId))

@@ -5,7 +5,7 @@ import Court from './Court'
 import PlayerToken from './PlayerToken'
 import RouteLine from './RouteLine'
 import BallToken from './BallToken'
-import { usePlayEditor, PASS_CATCH_RADIUS } from '../hooks/usePlayEditor'
+import { usePlayEditor, passCatchRadius } from '../hooks/usePlayEditor'
 import { BALL_COLOR, PLAYER_TOKEN_RADIUS } from '../lib/court'
 import { lineSeqFloor } from '../lib/routeGeometry'
 
@@ -110,7 +110,8 @@ export default function CourtEditor({ editor }: Props) {
     for (const p of editor.players) {
       if (p.id === editor.ballHolderId) continue
       const dist = Math.hypot(p.x - tip.x, p.y - tip.y)
-      if (dist <= PASS_CATCH_RADIUS && (!closest || dist < closest.dist)) closest = { id: p.id, dist }
+      if (dist <= passCatchRadius(editor.playerRadius) && (!closest || dist < closest.dist))
+        closest = { id: p.id, dist }
     }
     return closest?.id ?? null
   })()
@@ -206,7 +207,7 @@ export default function CourtEditor({ editor }: Props) {
                   key={`catch-${p.id}`}
                   x={p.x}
                   y={p.y}
-                  radius={PASS_CATCH_RADIUS}
+                  radius={passCatchRadius(editor.playerRadius)}
                   fill={ballHoverId === p.id ? CATCH_FILL_ACTIVE : CATCH_FILL}
                   listening={false}
                 />
