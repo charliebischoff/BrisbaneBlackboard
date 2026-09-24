@@ -90,14 +90,20 @@ export function reconcileStash(stash: CourtStash, validIds: Set<string>): CourtS
     const board = stash[key]
     if (!board) continue
     const gone = (id: string) => !validIds.has(id)
+    const players = board.players.filter((p) => validIds.has(p.id))
     out[key] = {
       ...board,
-      players: board.players.filter((p) => validIds.has(p.id)),
+      players,
       routes: board.routes.filter((r) => !gone(r.playerId)),
       ballTransfers: board.ballTransfers.filter((t) => !gone(t.fromId) && !gone(t.toId)),
-      // A holder who has left keeps no claim on the ball; the editor picks a new
-      // one when this board is next restored.
-      ballHolderId: board.ballHolderId && gone(board.ballHolderId) ? null : board.ballHolderId,
+      // Hand the ball to a survivor rather than dropping it. This mirrors what
+      // `syncCourtWithRoster` does to the live board — leaving it null would
+      // restore a board whose ball has silently vanished, since nothing on the
+      // restore path picks a new holder.
+      ballHolderId:
+        board.ballHolderId && gone(board.ballHolderId)
+          ? players[0]?.id ?? null
+          : board.ballHolderId,
     }
   }
   return out
