@@ -4,52 +4,120 @@
  * Reads are synchronous on purpose: settings are needed on the first render of
  * a play, which may happen with no network at all.
  */
-export interface Settings {
-  /** How many of the most recently drawn lines stay on the board. */
-  maxVisibleLines: number
+import type { CourtType } from '../types'
+
+/** Ball and player radius, in court units, for one court type. */
+export interface CourtSizes {
   /**
    * Ball radius in court units — absolute, not a fraction of the player token.
    * It used to be a multiple of the token, which meant resizing players moved
-   * the ball too, and the "% of a player" label was a lie on full court where
-   * tokens get a 1.5x bump the ball never did.
+   * the ball too.
    */
   ballRadius: number
-  /** Player token radius in court units, before the full-court size bump. */
+  /** Player token radius in court units, as rendered — no bump applied on top. */
   playerRadius: number
 }
 
+export interface Settings {
+  /** How many of the most recently drawn lines stay on the board. Global: it's
+   *  a legibility preference, not a size, so it doesn't split per court. */
+  maxVisibleLines: number
+  /**
+   * Sizes are per court type. The two courts aren't scaled versions of each
+   * other, and a coach who wants a tiny ball on half court often wants
+   * something else entirely on full court. Previously one shared pair of
+   * numbers with a hard-coded 1.5x bump on full court that applied to players
+   * but not the ball — so the courts could never be tuned independently.
+   */
+  sizes: Record<CourtType, CourtSizes>
+}
+
 /**
- * v2 because `ballScale` (0.5–1.0, a ratio) and `ballRadius` (court units)
- * occupy the same slot conceptually but not numerically — reading a v1 blob as
- * v2 would give a half-pixel ball. v1 is migrated on first read, not discarded.
+ * v3 because `sizes` is nested per court where v2 had two flat scalars. v2 in
+ * turn replaced v1's `ballScale` (0.5–1.0, a ratio) with `ballRadius` (court
+ * units) — same slot conceptually, not numerically. Both older blobs are
+ * migrated on first read, not discarded.
  */
-const STORAGE_KEY = 'playbook.settings.v2'
-const LEGACY_STORAGE_KEY = 'playbook.settings.v1'
+const STORAGE_KEY = 'playbook.settings.v3'
+const V2_STORAGE_KEY = 'playbook.settings.v2'
+const V1_STORAGE_KEY = 'playbook.settings.v1'
 
 export const MIN_VISIBLE_LINES = 1
 export const MAX_VISIBLE_LINES_LIMIT = 8
 
-/** Court units. The old range was 8.5–17 (half to a full token); this widens both ends. */
-export const MIN_BALL_RADIUS = 5
-export const MAX_BALL_RADIUS = 20
-export const BALL_RADIUS_STEP = 0.5
+interface SizeBound {
+  min: number
+  max: number
+  step: number
+}
 
-/** Court units, at half-court scale. 17 was the fixed value before the slider existed. */
-export const MIN_PLAYER_RADIUS = 12
-export const MAX_PLAYER_RADIUS = 26
-export const PLAYER_RADIUS_STEP = 1
+/**
+ * Per-court slider bounds, in court units. Full court's coordinate space is
+ * ~2.6x wider than half court's, so the same numbers cover a much smaller
+ * apparent range there — its bounds are widened at both ends to compensate.
+ */
+export const SIZE_LIMITS: Record<CourtType, { ball: SizeBound; player: SizeBound }> = {
+  half: {
+    ball: { min: 5, max: 20, step: 0.5 },
+    player: { min: 12, max: 26, step: 1 },
+  },
+  full: {
+    // Floor stays at half court's 5 rather than scaling up with the rest of the
+    // range: a coach already running a tiny ball would otherwise have it
+    // clamped larger on the first load after this split.
+    ball: { min: 5, max: 30, step: 0.5 },
+    player: { min: 18, max: 40, step: 1 },
+  },
+}
 
 /** The token radius the old hard-coded constant used, and what v1's ballScale was a multiple of. */
 const LEGACY_TOKEN_RADIUS = 17
 
+/**
+ * The bump full court used to apply to player tokens at render time. Now it
+ * only seeds full court's defaults and migrates old flat blobs, so upgrading
+ * leaves both courts looking exactly as they did.
+ */
+const LEGACY_FULL_COURT_BUMP = 1.5
+
 export const DEFAULT_SETTINGS: Settings = {
   maxVisibleLines: 3,
-  ballRadius: LEGACY_TOKEN_RADIUS / 2,
-  playerRadius: LEGACY_TOKEN_RADIUS,
+  sizes: {
+    half: {
+      ballRadius: LEGACY_TOKEN_RADIUS / 2,
+      playerRadius: LEGACY_TOKEN_RADIUS,
+    },
+    full: {
+      ballRadius: LEGACY_TOKEN_RADIUS / 2,
+      playerRadius: LEGACY_TOKEN_RADIUS * LEGACY_FULL_COURT_BUMP,
+    },
+  },
+}
+
+/** The shape v1 and v2 both stored: one pair of sizes for both courts. */
+interface FlatSettings {
+  maxVisibleLines?: number
+  ballRadius?: number
+  playerRadius?: number
 }
 
 function clamp(value: number, min: number, max: number): number {
   return Math.min(max, Math.max(min, value))
+}
+
+function normalizeSizes(raw: Partial<CourtSizes> | undefined, courtType: CourtType): CourtSizes {
+  const limits = SIZE_LIMITS[courtType]
+  const fallback = DEFAULT_SETTINGS.sizes[courtType]
+  const ball = Number(raw?.ballRadius)
+  const player = Number(raw?.playerRadius)
+  return {
+    ballRadius: Number.isFinite(ball)
+      ? clamp(ball, limits.ball.min, limits.ball.max)
+      : fallback.ballRadius,
+    playerRadius: Number.isFinite(player)
+      ? clamp(player, limits.player.min, limits.player.max)
+      : fallback.playerRadius,
+  }
 }
 
 /** Anything read back from storage is treated as untrusted — an old or hand-edited
@@ -57,36 +125,57 @@ function clamp(value: number, min: number, max: number): number {
 function normalize(raw: Partial<Settings> | null): Settings {
   if (!raw) return DEFAULT_SETTINGS
   const lines = Number(raw.maxVisibleLines)
-  const ball = Number(raw.ballRadius)
-  const player = Number(raw.playerRadius)
   return {
     maxVisibleLines: Number.isFinite(lines)
       ? clamp(Math.round(lines), MIN_VISIBLE_LINES, MAX_VISIBLE_LINES_LIMIT)
       : DEFAULT_SETTINGS.maxVisibleLines,
-    ballRadius: Number.isFinite(ball)
-      ? clamp(ball, MIN_BALL_RADIUS, MAX_BALL_RADIUS)
-      : DEFAULT_SETTINGS.ballRadius,
-    playerRadius: Number.isFinite(player)
-      ? clamp(player, MIN_PLAYER_RADIUS, MAX_PLAYER_RADIUS)
-      : DEFAULT_SETTINGS.playerRadius,
+    sizes: {
+      half: normalizeSizes(raw.sizes?.half, 'half'),
+      full: normalizeSizes(raw.sizes?.full, 'full'),
+    },
   }
 }
 
 /**
- * One-time read of the v1 blob. `ballScale` was a multiple of a 17-unit token,
- * so the absolute radius is just that product; `maxVisibleLines` carries over
- * unchanged, which is the whole reason this isn't a plain reset to defaults.
+ * One shared mapping from the old flat shape to the per-court one. Half court
+ * takes the stored value as-is and full court takes the player radius times the
+ * bump it used to get at render time, so an upgrade changes nothing visually on
+ * either court.
  */
-function migrateLegacy(): Settings | null {
-  const raw = localStorage.getItem(LEGACY_STORAGE_KEY)
+function flatToNested(flat: FlatSettings): Partial<Settings> {
+  const ball = Number(flat.ballRadius)
+  const player = Number(flat.playerRadius)
+  return {
+    maxVisibleLines: flat.maxVisibleLines,
+    sizes: {
+      half: { ballRadius: ball, playerRadius: player },
+      full: { ballRadius: ball, playerRadius: player * LEGACY_FULL_COURT_BUMP },
+    },
+  }
+}
+
+/**
+ * v1's `ballScale` was a multiple of a 17-unit token, so the absolute radius is
+ * just that product; `maxVisibleLines` carries over unchanged, which is the
+ * whole reason this isn't a plain reset to defaults. Returns the *flat* shape —
+ * `flatToNested` and `normalize` are applied by the caller, once.
+ */
+function readLegacyV1(): FlatSettings | null {
+  const raw = localStorage.getItem(V1_STORAGE_KEY)
   if (!raw) return null
   const old = JSON.parse(raw) as { maxVisibleLines?: number; ballScale?: number }
   const scale = Number(old.ballScale)
-  return normalize({
+  return {
     maxVisibleLines: Number(old.maxVisibleLines),
     ballRadius: Number.isFinite(scale) ? scale * LEGACY_TOKEN_RADIUS : undefined,
-    playerRadius: DEFAULT_SETTINGS.playerRadius,
-  })
+    playerRadius: DEFAULT_SETTINGS.sizes.half.playerRadius,
+  }
+}
+
+function readLegacyV2(): FlatSettings | null {
+  const raw = localStorage.getItem(V2_STORAGE_KEY)
+  if (!raw) return null
+  return JSON.parse(raw) as FlatSettings
 }
 
 export const settingsStore = {
@@ -94,9 +183,10 @@ export const settingsStore = {
     try {
       const raw = localStorage.getItem(STORAGE_KEY)
       if (raw) return normalize(JSON.parse(raw) as Partial<Settings>)
-      // The v1 blob is left in place rather than removed — it costs nothing and
-      // makes a bad migration recoverable by hand.
-      return migrateLegacy() ?? DEFAULT_SETTINGS
+      // Older blobs are left in place rather than removed — they cost nothing
+      // and make a bad migration recoverable by hand.
+      const legacy = readLegacyV2() ?? readLegacyV1()
+      return legacy ? normalize(flatToNested(legacy)) : DEFAULT_SETTINGS
     } catch (err) {
       console.error('Failed to read settings from localStorage', err)
       return DEFAULT_SETTINGS

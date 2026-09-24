@@ -29,9 +29,8 @@ import {
   PLAYER_TOKEN_RADIUS,
   SPOT_CLEARANCE,
   ballMinGap,
-  playerTokenRadius,
 } from '../lib/court'
-import { Settings, settingsStore } from '../lib/settingsStore'
+import { CourtSizes, Settings, settingsStore } from '../lib/settingsStore'
 
 /**
  * Everything that makes a play a play, in a form two versions can be compared by.
@@ -257,9 +256,12 @@ export function usePlayEditor() {
 
   /** Display settings, loaded once from localStorage and written through on change. */
   const [settings, setSettings] = useState<Settings>(() => settingsStore.get())
-  // Absolute court units now — the ball no longer tracks the player token size.
-  const currentBallRadius = settings.ballRadius
-  const currentPlayerRadius = playerTokenRadius(settings.playerRadius, courtType)
+  // Absolute court units, per court type. Deriving from `courtType` rather than
+  // storing a live pair is what makes sizes survive `setCourtType`'s reset the
+  // way roster selection does — switching courts just reads the other slot.
+  const currentSizes = settings.sizes[courtType]
+  const currentBallRadius = currentSizes.ballRadius
+  const currentPlayerRadius = currentSizes.playerRadius
   const rafRef = useRef<number | null>(null)
   const lastTsRef = useRef<number | null>(null)
 
@@ -343,14 +345,18 @@ export function usePlayEditor() {
     // Ball geometry was drawn against a court that no longer applies, same as routes.
     setBallTransfers([])
     seqRef.current = 0
-    setBallOffset(DEFAULT_BALL_OFFSET)
+    // Not `DEFAULT_BALL_OFFSET`: that's a fixed distance from the default sizes,
+    // and the incoming court has its own. Dropping the puck there after a switch
+    // into a court set to large tokens would park it inside its carrier.
+    const size = settings.sizes[type]
+    setBallOffset({ x: ballMinGap(size.ballRadius, size.playerRadius), y: 0 })
     setBallGesture(null)
     setBallHint(null)
     setSelectedPlayerId(null)
     setDrawGesture(null)
     setPlaybackT(0)
     setErasedSnapshot(null)
-  }, [])
+  }, [settings])
 
   // --- Flip -------------------------------------------------------------
 
@@ -623,18 +629,26 @@ export function usePlayEditor() {
     })
   }, [])
 
-  const setBallRadius = useCallback((value: number) => {
-    const next = settingsStore.save({ ...settings, ballRadius: value })
+  /** Writes through to the court currently on screen only — the other court's
+   *  sizes are left exactly as the coach last set them. */
+  const setCourtSize = useCallback((key: keyof CourtSizes, value: number) => {
+    const next = settingsStore.save({
+      ...settings,
+      sizes: { ...settings.sizes, [courtType]: { ...settings.sizes[courtType], [key]: value } },
+    })
     setSettings(next)
-    pushBallClear(ballMinGap(next.ballRadius, playerTokenRadius(next.playerRadius, courtType)))
+    const size = next.sizes[courtType]
+    pushBallClear(ballMinGap(size.ballRadius, size.playerRadius))
   }, [settings, courtType, pushBallClear])
+
+  const setBallRadius = useCallback((value: number) => {
+    setCourtSize('ballRadius', value)
+  }, [setCourtSize])
 
   /** Same reasoning as the ball: a bigger token can swallow a puck already at rest. */
   const setPlayerRadius = useCallback((value: number) => {
-    const next = settingsStore.save({ ...settings, playerRadius: value })
-    setSettings(next)
-    pushBallClear(ballMinGap(next.ballRadius, playerTokenRadius(next.playerRadius, courtType)))
-  }, [settings, courtType, pushBallClear])
+    setCourtSize('playerRadius', value)
+  }, [setCourtSize])
 
   /**
    * Hands the ball to a player directly — this sets who has it *at the start*

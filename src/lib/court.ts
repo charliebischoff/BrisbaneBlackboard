@@ -32,18 +32,10 @@ export const COURT_IMAGE_SIZE: Record<CourtType, { width: number; height: number
 
 /**
  * Default player token radius, in court units. The live value is a setting now
- * (`settings.playerRadius`), so this is only the fallback and the basis for the
+ * (`settings.sizes[courtType].playerRadius`), so this is only the fallback and the basis for the
  * layout constants below — those stay fixed on purpose, see SPOT_CLEARANCE.
  */
 export const PLAYER_TOKEN_RADIUS = 17
-
-/**
- * Full court is drawn at a larger coordinate scale than half court, so tokens
- * are bumped to keep their apparent size roughly constant between the two.
- */
-export function playerTokenRadius(radius: number, courtType: CourtType): number {
-  return radius * (courtType === 'full' ? 1.5 : 1)
-}
 
 /**
  * Two tokens closer than this read as one blob, so a spot that close is "taken".

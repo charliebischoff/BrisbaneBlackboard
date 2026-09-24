@@ -1,18 +1,16 @@
 import { useEffect, useState } from 'react'
 import {
-  Settings,
-  BALL_RADIUS_STEP,
-  MAX_BALL_RADIUS,
-  MAX_PLAYER_RADIUS,
   MAX_VISIBLE_LINES_LIMIT,
-  MIN_BALL_RADIUS,
-  MIN_PLAYER_RADIUS,
   MIN_VISIBLE_LINES,
-  PLAYER_RADIUS_STEP,
+  SIZE_LIMITS,
+  Settings,
 } from '../lib/settingsStore'
+import type { CourtType } from '../types'
 
 interface Props {
   settings: Settings
+  /** Which court's sizes the two size sliders read and write. */
+  courtType: CourtType
   onMaxVisibleLinesChange: (value: number) => void
   onBallRadiusChange: (value: number) => void
   onPlayerRadiusChange: (value: number) => void
@@ -78,6 +76,7 @@ function StepSlider({
  */
 export default function SettingsModal({
   settings,
+  courtType,
   onMaxVisibleLinesChange,
   onBallRadiusChange,
   onPlayerRadiusChange,
@@ -92,6 +91,11 @@ export default function SettingsModal({
    * more opaque than the sheet containing it.
    */
   const [isSizing, setIsSizing] = useState(false)
+  // Sizes are stored per court type, so both sliders read and write whichever
+  // court is currently on the board — and use that court's own bounds.
+  const sizes = settings.sizes[courtType]
+  const limits = SIZE_LIMITS[courtType]
+  const courtLabel = courtType === 'full' ? 'full court' : 'half court'
 
   useEffect(() => {
     if (!isSizing) return
@@ -144,18 +148,20 @@ export default function SettingsModal({
             className={dimmed}
           />
 
-          {/* Both sizes are absolute now. The ball used to be a fraction of a
-              player token, which meant this slider moved whenever the token did
-              — and on full court, where tokens get a 1.5x bump the ball never
-              got, the percentage it showed was simply wrong. */}
+          {/* Both sizes are absolute court units, stored separately for each
+              court. The ball used to be a fraction of a player token, and full
+              court used to bump tokens by 1.5x at render time — so the two
+              courts could never be tuned apart and the number shown was a lie
+              on full court. Now the value is what renders, on this court only. */}
           <StepSlider
             label="Ball size"
-            value={settings.ballRadius}
-            min={MIN_BALL_RADIUS}
-            max={MAX_BALL_RADIUS}
-            step={BALL_RADIUS_STEP}
+            hint={`Applies to ${courtLabel} only.`}
+            value={sizes.ballRadius}
+            min={limits.ball.min}
+            max={limits.ball.max}
+            step={limits.ball.step}
             // Diameter, not radius — it's the width a coach sees on the board.
-            display={`${Math.round(settings.ballRadius * 2)}`}
+            display={`${Math.round(sizes.ballRadius * 2)}`}
             onChange={onBallRadiusChange}
             className={isSizing ? 'opacity-50' : 'opacity-100'}
             onDragStart={() => setIsSizing(true)}
@@ -163,11 +169,12 @@ export default function SettingsModal({
 
           <StepSlider
             label="Player size"
-            value={settings.playerRadius}
-            min={MIN_PLAYER_RADIUS}
-            max={MAX_PLAYER_RADIUS}
-            step={PLAYER_RADIUS_STEP}
-            display={`${Math.round(settings.playerRadius * 2)}`}
+            hint={`Applies to ${courtLabel} only.`}
+            value={sizes.playerRadius}
+            min={limits.player.min}
+            max={limits.player.max}
+            step={limits.player.step}
+            display={`${Math.round(sizes.playerRadius * 2)}`}
             onChange={onPlayerRadiusChange}
             className={isSizing ? 'opacity-50' : 'opacity-100'}
             onDragStart={() => setIsSizing(true)}

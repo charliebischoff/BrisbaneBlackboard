@@ -5,7 +5,7 @@ import { pulse } from '../lib/pulse'
 import { CourtType, Player } from '../types'
 import { EditorMode } from '../hooks/usePlayEditor'
 import { useHTMLImage } from '../hooks/useHTMLImage'
-import { BALL_COLOR, COURT_DIMENSIONS, touchRadius } from '../lib/court'
+import { BALL_COLOR, COURT_DIMENSIONS, PLAYER_TOKEN_RADIUS, touchRadius } from '../lib/court'
 
 interface Props {
   player: Player
@@ -49,11 +49,14 @@ export default function PlayerToken({
   onDragStateChange,
   onDrawStart,
 }: Props) {
-  // `radius` arrives already bumped for full court (see `playerTokenRadius`).
-  // The label keeps its own scale factor: type size follows the court, not the
-  // coach's token-size preference, or a large token would drag the name out of
-  // proportion with everything else on the board.
-  const sizeScale = courtType === 'full' ? 1.50 : 1
+  // `radius` is the coach's setting for this court, as stored — no bump is
+  // applied on top any more; each court keeps its own size. The label and jersey
+  // badge scale off it rather than off the court type: a flat per-court factor
+  // was right while one slider fed both courts, but full court can now be set
+  // anywhere from 18 to 40, which would leave the badge nearly as wide as a
+  // small token and a pinhead on a large one. Neutral at both defaults —
+  // 17/17 = 1 on half court, 25.5/17 = 1.5 on full.
+  const sizeScale = radius / PLAYER_TOKEN_RADIUS
   const isPositionMode = mode === 'position'
 
   // The name sits under the token, and the stage clips — so near the bottom edge
