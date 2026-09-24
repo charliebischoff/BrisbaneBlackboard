@@ -8,6 +8,7 @@ import BallToken from './BallToken'
 import { usePlayEditor, passCatchRadius } from '../hooks/usePlayEditor'
 import { BALL_COLOR, PLAYER_TOKEN_RADIUS } from '../lib/court'
 import { lineSeqFloor } from '../lib/routeGeometry'
+import { isDoubleTap, type TapRecord } from '../lib/tapGesture'
 
 const TEAM_COLOR = { offense: '#3b82f6', defense: '#dc2626' } as const
 const BALL_LINE_COLOR = BALL_COLOR
@@ -19,6 +20,8 @@ type Editor = ReturnType<typeof usePlayEditor>
 
 interface Props {
   editor: Editor
+  /** The roster button's own handler — a double-tap on a token is the same action. */
+  onOpenRoster: () => void
 }
 
 /** Fits the current court's fixed aspect ratio into whatever space the parent gives it. */
@@ -56,7 +59,7 @@ function useResponsiveScale(
   return scale
 }
 
-export default function CourtEditor({ editor }: Props) {
+export default function CourtEditor({ editor, onOpenRoster }: Props) {
   const containerRef = useRef<HTMLDivElement>(null)
   const { width: COURT_WIDTH, height: COURT_HEIGHT } = editor.courtDimensions
   const scale = useResponsiveScale(containerRef, COURT_WIDTH, COURT_HEIGHT)
@@ -129,6 +132,38 @@ export default function CourtEditor({ editor }: Props) {
     () => lineSeqFloor(editor.routes, editor.ballTransfers, editor.settings.maxVisibleLines),
     [editor.routes, editor.ballTransfers, editor.settings.maxVisibleLines],
   )
+
+  /**
+   * Last token tap, for double-tap detection. A ref rather than state: nothing
+   * renders off it, and a re-render between the two taps would be a wasted frame
+   * in the middle of a gesture.
+   */
+  const lastTapRef = useRef<TapRecord | null>(null)
+
+  /**
+   * Token tap. Selection behaves exactly as it always has — including on the
+   * second tap, where the toggle runs twice and nets back to where it started.
+   * A double-tap additionally opens the roster, which is the whole feature.
+   *
+   * Konva fires click/tap whenever press and release land on the same node, so
+   * this also runs at the end of a stroke that started and finished on the token
+   * — meaning any two such events inside the window read as a double-tap, not
+   * only two deliberate taps. The cost is a roster the coach didn't ask for: the
+   * strokes themselves still commit, and a sub-MIN_GESTURE_LENGTH press is still
+   * discarded before it can touch seqRef. Cheaper to wear than to thread gesture
+   * length through to here.
+   */
+  function handleTokenTap(id: string) {
+    editor.selectPlayer(id)
+    const next: TapRecord = { playerId: id, at: performance.now() }
+    if (isDoubleTap(lastTapRef.current, next)) {
+      // Cleared so a third quick tap starts a fresh pair rather than firing again.
+      lastTapRef.current = null
+      onOpenRoster()
+      return
+    }
+    lastTapRef.current = next
+  }
 
   function handleStageClick(e: Konva.KonvaEventObject<MouseEvent | TouchEvent>) {
     // Tapping empty court (not a player token) clears the current selection.
@@ -223,7 +258,7 @@ export default function CourtEditor({ editor }: Props) {
               courtType={editor.courtType}
               radius={editor.playerRadius}
               scale={scale}
-              onSelect={editor.selectPlayer}
+              onSelect={handleTokenTap}
               onMove={editor.movePlayer}
               onDragStateChange={() => {}}
               onDrawStart={editor.startDrawGesture}

@@ -10,10 +10,11 @@
     "dev": "vite",
     "build": "tsc -b && vite build",
     "preview": "vite preview",
-    "check": "npm run check:courtboard && npm run check:routegeometry && npm run check:stores",
+    "check": "npm run check:courtboard && npm run check:routegeometry && npm run check:stores && npm run check:tapgesture",
     "check:courtboard": "esbuild --bundle --platform=node --format=esm tools/courtBoard.check.ts --outfile=node_modules/.cache/courtBoard.check.mjs && node node_modules/.cache/courtBoard.check.mjs",
     "check:routegeometry": "esbuild --bundle --platform=node --format=esm tools/routeGeometry.check.ts --outfile=node_modules/.cache/routeGeometry.check.mjs && node node_modules/.cache/routeGeometry.check.mjs",
-    "check:stores": "esbuild --bundle --platform=node --format=esm tools/stores.check.ts --outfile=node_modules/.cache/stores.check.mjs && node node_modules/.cache/stores.check.mjs"
+    "check:stores": "esbuild --bundle --platform=node --format=esm tools/stores.check.ts --outfile=node_modules/.cache/stores.check.mjs && node node_modules/.cache/stores.check.mjs",
+    "check:tapgesture": "esbuild --bundle --platform=node --format=esm tools/tapGesture.check.ts --outfile=node_modules/.cache/tapGesture.check.mjs && node node_modules/.cache/tapGesture.check.mjs"
   },
   "dependencies": {
     "react": "^18.3.1",

@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { usePlayEditor } from './hooks/usePlayEditor'
 import CourtEditor from './components/CourtEditor'
 import TopBar, { CollapseToggle } from './components/TopBar'
@@ -12,6 +12,10 @@ export default function App() {
   const updateReady = useAppUpdate()
   const [isRosterOpen, setIsRosterOpen] = useState(false)
   const [isSettingsOpen, setIsSettingsOpen] = useState(false)
+  // One opener, two ways in: the bar's roster button and a double-tap on a
+  // player token. The token route is the only one that survives collapsing the
+  // bar, which hides the button entirely.
+  const openRoster = useCallback(() => setIsRosterOpen(true), [])
   // Lives here rather than inside TopBar because collapsing is not just about
   // the bar: it also flips the root layout axis and drops the court's padding,
   // which is where the extra court size actually comes from. Session-only on
@@ -64,7 +68,7 @@ export default function App() {
           onToggleCollapse={() => setIsBarCollapsed((v) => !v)}
           courtType={editor.courtType}
           onCourtTypeChange={editor.setCourtType}
-          onOpenRoster={() => setIsRosterOpen(true)}
+          onOpenRoster={openRoster}
           onOpenSettings={() => setIsSettingsOpen(true)}
           onClearRoutes={editor.clearAllRoutes}
           onFlip={editor.flipBoard}
@@ -98,7 +102,7 @@ export default function App() {
               'pr-[max(0.75rem,env(safe-area-inset-right))] lg:pb-6 lg:pr-6')
         }
       >
-        <CourtEditor editor={editor} />
+        <CourtEditor editor={editor} onOpenRoster={openRoster} />
 
         {isBarCollapsed && (
           <CollapseToggle
