@@ -48,6 +48,13 @@ places must touch the stash: `loadPlay` and `newPlay` clear it, and
 `syncCourtWithRoster` reconciles it so a deleted player can't survive on the
 court you aren't looking at.
 
+Note this made on-court squad selection per court too — `players` is part of the
+stashed board, so adding someone to the court on half court does not add them on
+full court, and `MAX_OFFENSE_ON_COURT` is counted per court. That's a deliberate
+choice (each court is its own board, squad included) and a change from the
+earlier "roster selection survives, geometry does not" rule. The *roster* itself
+is of course still global — this is only about who is placed on which court.
+
 **Routes.** A player's route is an ordered chain of `RouteSegment`s, each one
 freehand press-drag-release stroke in a single `LineType`
 (`motion`/`pass`/`dribble`/`screen`). Segments chain — each starts where the
