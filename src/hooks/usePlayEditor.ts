@@ -552,6 +552,38 @@ export function usePlayEditor() {
     },
     [players, ballHolderId],
   )
+  
+  /*
+   * Substitutes one on-court player for another roster player, in place — same
+   * exact spot, same drawn routes, same ball history, just relabeled. Deliberately
+   * a rename rather than a remove+add: remove+add would place the incoming player
+   * via pickFreeSpot (not necessarily where the coach wants them) and would drop
+   * everything already drawn for that slot.
+   */
+  
+  const swapPlayerOnCourt = useCallback((outgoingId: string, incoming: RosterPlayer) => {
+    setPlayers((prev) => {
+      if (prev.some((p) => p.id === incoming.id)) return prev
+      return prev.map((p) =>
+        p.id === outgoingId
+          ? { ...p, id: incoming.id, number: incoming.number ?? 0, name: incoming.name, photoUrl: incoming.photo }
+          : p,
+      )
+    })
+    setRoutes((prev) => prev.map((r) => (r.playerId === outgoingId ? { ...r, playerId: incoming.id } : r)))
+    setBallTransfers((prev) =>
+      prev.map((t) => ({
+        ...t,
+        fromId: t.fromId === outgoingId ? incoming.id : t.fromId,
+        toId: t.toId === outgoingId ? incoming.id : t.toId,
+      })),
+    )
+    setBallHolderId((current) => (current === outgoingId ? incoming.id : current))
+    setSelectedPlayerId((current) => (current === outgoingId ? incoming.id : current))
+  }, [])
+
+  // Where each player currently *stands*, ignoring playback...
+
 
   /**
    * Where each player currently *stands*, ignoring playback — the end of their
