@@ -560,6 +560,14 @@ export function usePlayEditor() {
    * depends on it — which is what makes a clean revert possible from just this
    * one action's own recorded data, with no separate undo history to maintain.
    */
+    const restingPositions = useMemo(() => {
+    const map = new Map<string, Point>()
+    for (const p of players) {
+      map.set(p.id, routeEndPoint(routes.find((r) => r.playerId === p.id), { x: p.x, y: p.y }))
+    }
+    return map
+  }, [players, routes])
+  
   const undoLastAction = useCallback(() => {
     type Best =
       | { kind: 'segment'; playerId: string; seq: number }
@@ -658,13 +666,6 @@ export function usePlayEditor() {
    * (see flattenRoute). Writing the drag end back into player.x/y would make
    * playback jump backwards and replay the route.
    */
-  const restingPositions = useMemo(() => {
-    const map = new Map<string, Point>()
-    for (const p of players) {
-      map.set(p.id, routeEndPoint(routes.find((r) => r.playerId === p.id), { x: p.x, y: p.y }))
-    }
-    return map
-  }, [players, routes])
 
   // --- Ball dragging (drag mode) ---------------------------------------
 
