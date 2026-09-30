@@ -5,6 +5,7 @@ import Court from './Court'
 import PlayerToken from './PlayerToken'
 import RouteLine from './RouteLine'
 import BallToken from './BallToken'
+import PlayerSwapMenu from './PlayerSwapMenu'
 import { usePlayEditor, passCatchRadius } from '../hooks/usePlayEditor'
 import { BALL_COLOR, PLAYER_TOKEN_RADIUS } from '../lib/court'
 import { lineSeqFloor } from '../lib/routeGeometry'
@@ -72,6 +73,7 @@ export default function CourtEditor({ editor, onOpenRoster }: Props) {
    * recovering it. Kept here so route drawing and ball dragging are bounded by
    * the same rule.
    */
+
   function stagePoint(stage: Konva.Stage): { x: number; y: number } | null {
     const pointer = stage.getPointerPosition()
     if (!pointer) return null
@@ -80,6 +82,26 @@ export default function CourtEditor({ editor, onOpenRoster }: Props) {
     return {
       x: clamp(pointer.x / scale, COURT_WIDTH),
       y: clamp(pointer.y / scale, COURT_HEIGHT),
+    }
+  }
+
+  /**
+   * A player's token position in real page pixels, for anchoring the swap popover.
+   * Has to account for the wrapper div's flex-centering (court-stage-wrapper is
+   * flex items-center justify-center) — the Stage isn't flush against the
+   * container's top-left corner whenever the court doesn't perfectly fill it,
+   * which is most of the time on any screen that isn't exactly the court's aspect ratio.
+   */
+  function getPlayerAnchor(playerId: string): { x: number; y: number } | null {
+    if (!containerRef.current) return null
+    const player = editor.players.find((p) => p.id === playerId)
+    if (!player) return null
+    const rect = containerRef.current.getBoundingClientRect()
+    const offsetX = (rect.width - COURT_WIDTH * scale) / 2
+    const offsetY = (rect.height - COURT_HEIGHT * scale) / 2
+    return {
+      x: rect.left + offsetX + player.x * scale,
+      y: rect.top + offsetY + player.y * scale,
     }
   }
 
@@ -140,6 +162,9 @@ export default function CourtEditor({ editor, onOpenRoster }: Props) {
    */
   const lastTapRef = useRef<TapRecord | null>(null)
 
+  /** id of the on-court player whose swap popover is open, or null if none is. */
+  const [swapMenuFor, setSwapMenuFor] = useState<string | null>(null)
+
   /**
    * Token tap. Selection behaves exactly as it always has — including on the
    * second tap, where the toggle runs twice and nets back to where it started.
@@ -153,13 +178,14 @@ export default function CourtEditor({ editor, onOpenRoster }: Props) {
    * discarded before it can touch seqRef. Cheaper to wear than to thread gesture
    * length through to here.
    */
+  
   function handleTokenTap(id: string) {
     editor.selectPlayer(id)
     const next: TapRecord = { playerId: id, at: performance.now() }
     if (isDoubleTap(lastTapRef.current, next)) {
       // Cleared so a third quick tap starts a fresh pair rather than firing again.
       lastTapRef.current = null
-      onOpenRoster()
+      setSwapMenuFor(id)
       return
     }
     lastTapRef.current = next
@@ -275,6 +301,16 @@ export default function CourtEditor({ editor, onOpenRoster }: Props) {
           )}
         </Layer>
       </Stage>
+
+      {swapMenuFor && (
+        <PlayerSwapMenu
+          outgoingId={swapMenuFor}
+          anchor={getPlayerAnchor(swapMenuFor) ?? { x: 0, y: 0 }}
+          onCourtIds={editor.onCourtIds}
+          onSwap={editor.swapPlayerOnCourt}
+          onClose={() => setSwapMenuFor(null)}
+        />
+      )}
     </div>
   )
 }

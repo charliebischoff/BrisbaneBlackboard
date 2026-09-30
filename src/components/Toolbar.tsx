@@ -27,6 +27,8 @@ type Editor = {
   resetPlayback: () => void
   clearRoute: (id: string) => void
   clearAllRoutes: () => void
+  undoLastAction: () => void
+  canUndoLastAction: boolean
   discardChanges: () => void
   routes: { playerId: string; segments: unknown[] }[]
 }
@@ -272,9 +274,19 @@ export default function Toolbar({ editor }: { editor: Editor }) {
       </div>
 
       {hasAnyWork && (
-        <button className="text-xs text-court-line/40 underline text-left" onClick={editor.clearAllRoutes}>
-          Clear all routes
-        </button>
+        <div className="flex items-center gap-3">
+          <button
+            className="text-xs text-court-line/40 underline text-left disabled:opacity-30 disabled:no-underline"
+            onClick={editor.undoLastAction}
+            disabled={!editor.canUndoLastAction}
+          >
+            
+            Undo last move
+          </button>
+          <button className="text-xs text-court-line/40 underline text-left" onClick={editor.clearAllRoutes}>
+            Clear all routes
+          </button>
+        </div>
       )}
     </div>
   )

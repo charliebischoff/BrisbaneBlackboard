@@ -7,10 +7,13 @@ interface Props {
   onOpenRoster: () => void
   onOpenSettings: () => void
   onClearRoutes: () => void
+  onUndoLastAction: () => void
+  canUndoLastAction: boolean
   onFlip: (axis: FlipAxis) => void
   /** Owned by App: collapsing also changes the root layout axis and the court's padding. */
   onToggleCollapse: () => void
 }
+
 
 /**
  * Every pressable control in the bar is a key cap. The shadow is a visible side
@@ -85,6 +88,16 @@ function FlipIcon({ axis }: { axis: FlipAxis }) {
       <path d="M4 12h5" />
       <path d="M15.5 8 20 12l-4.5 4" />
       <path d="M20 12h-5" />
+    </svg>
+  )
+}
+
+/** Counterclockwise arrow — the universal "undo" glyph. */
+function UndoIcon() {
+  return (
+    <svg viewBox="0 0 24 24" className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round">
+      <path d="M20 5v6a4 4 0 0 1-4 4H5" />
+      <path d="M9 11 5 15l4 4" />
     </svg>
   )
 }
@@ -193,6 +206,8 @@ export default function TopBar({
   onOpenRoster,
   onOpenSettings,
   onClearRoutes,
+  onUndoLastAction,
+  canUndoLastAction,
   onFlip,
   onToggleCollapse,
 }: Props) {
@@ -243,6 +258,14 @@ export default function TopBar({
           it top-left of the bar and at the head of the rail. */}
       <span className="contents lg:flex lg:items-center lg:flex-1 lg:gap-3">
         <CollapseToggle isCollapsed={false} onToggleCollapse={onToggleCollapse} />
+        <button
+          onClick={onUndoLastAction}
+          disabled={!canUndoLastAction}
+          aria-label="Undo last move"
+          className={`${ICON_CAP} disabled:opacity-30`}
+        >
+          <UndoIcon />
+        </button>
         <button onClick={onClearRoutes} aria-label="Erase all lines" className={`${ICON_CAP} text-base`}>
           R
         </button>

@@ -553,6 +553,109 @@ export function usePlayEditor() {
     [players, ballHolderId],
   )
 
+    /**
+   * Undoes the single most recently drawn action — whichever route segment or
+   * ball transfer carries the highest `seq`, across the whole board. Because
+   * it's necessarily the very last thing that happened, nothing since it
+   * depends on it — which is what makes a clean revert possible from just this
+   * one action's own recorded data, with no separate undo history to maintain.
+   */
+    const restingPositions = useMemo(() => {
+    const map = new Map<string, Point>()
+    for (const p of players) {
+      map.set(p.id, routeEndPoint(routes.find((r) => r.playerId === p.id), { x: p.x, y: p.y }))
+    }
+    return map
+  }, [players, routes])
+  
+  const undoLastAction = useCallback(() => {
+    type Best =
+      | { kind: 'segment'; playerId: string; seq: number }
+      | { kind: 'transfer'; seq: number }
+  
+    let best: Best | null = null
+    for (const route of routes) {
+      for (const seg of route.segments) {
+        if (!best || seg.seq > best.seq) best = { kind: 'segment', playerId: route.playerId, seq: seg.seq }
+      }
+    }
+    for (const t of ballTransfers) {
+      if (!best || t.seq > best.seq) best = { kind: 'transfer', seq: t.seq }
+    }
+    if (!best) return
+  
+    stopPlaybackRef.current()
+    setPlaybackT(0)
+    setDrawGesture(null)
+    setBallGesture(null)
+  
+    if (best.kind === 'segment') {
+      const targetId = best.playerId
+      const route = routes.find((r) => r.playerId === targetId)
+      if (!route) return
+      const trimmedSegments = route.segments.slice(0, -1)
+  
+      const currentPlayer = players.find((p) => p.id === targetId)
+      const revertedPos = routeEndPoint(
+        trimmedSegments.length > 0 ? { ...route, segments: trimmedSegments } : undefined,
+        currentPlayer ? { x: currentPlayer.x, y: currentPlayer.y } : { x: 0, y: 0 },
+      )
+  
+      setPlayers((prev) => prev.map((p) => (p.id === targetId ? { ...p, x: revertedPos.x, y: revertedPos.y } : p)))
+      setRoutes((prev) =>
+        trimmedSegments.length > 0
+          ? prev.map((r) => (r.playerId === targetId ? { ...r, segments: trimmedSegments } : r))
+          : prev.filter((r) => r.playerId !== targetId),
+      )
+    } else {
+      const last = ballTransfers[ballTransfers.length - 1]
+      const fromPos = restingPositions.get(last.fromId)
+      if (fromPos && last.points.length > 0) {
+        const origin = last.points[0]
+        setBallOffset({ x: origin.x - fromPos.x, y: origin.y - fromPos.y })
+      }
+      setBallHolderId(last.fromId)
+      setBallTransfers((prev) => prev.slice(0, -1))
+    }
+  }, [routes, ballTransfers, players, restingPositions])
+  
+  const canUndoLastAction = useMemo(
+    () => routes.some((r) => r.segments.length > 0) || ballTransfers.length > 0,
+    [routes, ballTransfers],
+  )  
+  
+  /*
+   * Substitutes one on-court player for another roster player, in place — same
+   * exact spot, same drawn routes, same ball history, just relabeled. Deliberately
+   * a rename rather than a remove+add: remove+add would place the incoming player
+   * via pickFreeSpot (not necessarily where the coach wants them) and would drop
+   * everything already drawn for that slot.
+   */
+  
+  const swapPlayerOnCourt = useCallback((outgoingId: string, incoming: RosterPlayer) => {
+    setPlayers((prev) => {
+      if (prev.some((p) => p.id === incoming.id)) return prev
+      return prev.map((p) =>
+        p.id === outgoingId
+          ? { ...p, id: incoming.id, number: incoming.number ?? 0, name: incoming.name, photoUrl: incoming.photo }
+          : p,
+      )
+    })
+    setRoutes((prev) => prev.map((r) => (r.playerId === outgoingId ? { ...r, playerId: incoming.id } : r)))
+    setBallTransfers((prev) =>
+      prev.map((t) => ({
+        ...t,
+        fromId: t.fromId === outgoingId ? incoming.id : t.fromId,
+        toId: t.toId === outgoingId ? incoming.id : t.toId,
+      })),
+    )
+    setBallHolderId((current) => (current === outgoingId ? incoming.id : current))
+    setSelectedPlayerId((current) => (current === outgoingId ? incoming.id : current))
+  }, [])
+
+  // Where each player currently *stands*, ignoring playback...
+
+
   /**
    * Where each player currently *stands*, ignoring playback — the end of their
    * drawn route, or their start spot if they have none. This is what drag mode
@@ -563,13 +666,6 @@ export function usePlayEditor() {
    * (see flattenRoute). Writing the drag end back into player.x/y would make
    * playback jump backwards and replay the route.
    */
-  const restingPositions = useMemo(() => {
-    const map = new Map<string, Point>()
-    for (const p of players) {
-      map.set(p.id, routeEndPoint(routes.find((r) => r.playerId === p.id), { x: p.x, y: p.y }))
-    }
-    return map
-  }, [players, routes])
 
   // --- Ball dragging (drag mode) ---------------------------------------
 
@@ -1274,6 +1370,9 @@ export function usePlayEditor() {
     movePlayer,
     addPlayerToCourt,
     removePlayerFromCourt,
+    swapPlayerOnCourt,
+    undoLastAction,
+    canUndoLastAction,
     syncCourtWithRoster,
     startDrawGesture,
     extendDrawGesture,
