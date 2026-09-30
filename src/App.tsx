@@ -7,6 +7,7 @@ import SettingsModal from './components/SettingsModal'
 import RotatePrompt from './components/RotatePrompt'
 import { useAppUpdate, applyUpdate } from './hooks/useAppUpdate'
 
+
 export default function App() {
   const editor = usePlayEditor()
   const updateReady = useAppUpdate()
