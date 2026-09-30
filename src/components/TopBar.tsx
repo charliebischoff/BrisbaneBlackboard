@@ -7,6 +7,8 @@ interface Props {
   onOpenRoster: () => void
   onOpenSettings: () => void
   onClearRoutes: () => void
+  onUndoLastAction: () => void
+  canUndoLastAction: boolean
   onFlip: (axis: FlipAxis) => void
   /** Owned by App: collapsing also changes the root layout axis and the court's padding. */
   onToggleCollapse: () => void
@@ -85,6 +87,16 @@ function FlipIcon({ axis }: { axis: FlipAxis }) {
       <path d="M4 12h5" />
       <path d="M15.5 8 20 12l-4.5 4" />
       <path d="M20 12h-5" />
+    </svg>
+  )
+}
+
+/** Counterclockwise arrow — the universal "undo" glyph. */
+function UndoIcon() {
+  return (
+    <svg viewBox="0 0 24 24" className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round">
+      <path d="M4 8v5h5" />
+      <path d="M4.5 13a8 8 0 1 0 2-8.5L4 8" />
     </svg>
   )
 }
@@ -193,6 +205,8 @@ export default function TopBar({
   onOpenRoster,
   onOpenSettings,
   onClearRoutes,
+  onUndoLastAction,
+  canUndoLastAction,
   onFlip,
   onToggleCollapse,
 }: Props) {
