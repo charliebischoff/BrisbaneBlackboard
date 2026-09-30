@@ -269,6 +269,9 @@ export default function TopBar({
         <button onClick={onClearRoutes} aria-label="Erase all lines" className={`${ICON_CAP} text-base`}>
           R
         </button>
+        <button onClick={() => onFlip('horizontal')} aria-label="Flip left to right" className={ICON_CAP}>
+          <FlipIcon axis="horizontal" />
+        </button>
         {/* Half court only has one basket, at the top — a top-to-bottom flip
             would strand the play in the empty half. Full court swaps sidelines,
             which is the SLOB case, so it earns its spot there.
