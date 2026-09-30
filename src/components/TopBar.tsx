@@ -258,11 +258,16 @@ export default function TopBar({
           it top-left of the bar and at the head of the rail. */}
       <span className="contents lg:flex lg:items-center lg:flex-1 lg:gap-3">
         <CollapseToggle isCollapsed={false} onToggleCollapse={onToggleCollapse} />
+        <button
+          onClick={onUndoLastAction}
+          disabled={!canUndoLastAction}
+          aria-label="Undo last move"
+          className={`${ICON_CAP} disabled:opacity-30`}
+        >
+          <UndoIcon />
+        </button>
         <button onClick={onClearRoutes} aria-label="Erase all lines" className={`${ICON_CAP} text-base`}>
           R
-        </button>
-        <button onClick={() => onFlip('horizontal')} aria-label="Flip left to right" className={ICON_CAP}>
-          <FlipIcon axis="horizontal" />
         </button>
         {/* Half court only has one basket, at the top — a top-to-bottom flip
             would strand the play in the empty half. Full court swaps sidelines,
