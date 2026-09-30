@@ -14,6 +14,7 @@ interface Props {
   onToggleCollapse: () => void
 }
 
+
 /**
  * Every pressable control in the bar is a key cap. The shadow is a visible side
  * face, so it has to be a grey shade of the cap rather than a dark one —
