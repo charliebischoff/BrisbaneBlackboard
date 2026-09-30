@@ -96,8 +96,8 @@ function FlipIcon({ axis }: { axis: FlipAxis }) {
 function UndoIcon() {
   return (
     <svg viewBox="0 0 24 24" className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round">
-      <path d="M4 8v5h5" />
-      <path d="M4.5 13a8 8 0 1 0 2-8.5L4 8" />
+      <path d="M20 5v6a4 4 0 0 1-4 4H5" />
+      <path d="M9 11 5 15l4 4" />
     </svg>
   )
 }
