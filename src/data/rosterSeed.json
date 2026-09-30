@@ -1,7 +1,7 @@
 [
   { "id": "archie-woodhill", "name": "Archie Woodhill", "number": 6, "position": "F", "photo": "/players/archie-woodhill.png" },
   { "id": "arnas-velicka", "name": "Arnas Velicka", "number": 1, "position": "G", "photo": "/players/arnas-velicka.png" },
-  { "id": "billy-mcrae", "name": "Billy McRae", "number": 10, "position": "G", "photo": "/players/billy-mcrae.svg" },
+  { "id": "billy-mcrae", "name": "Billy McRae", "number": 10, "position": "G", "photo": "/players/billy-mcrae.png" },
   { "id": "harry-rouhliadeff", "name": "Harry Rouhliadeff", "number": 14, "position": "F", "photo": "/players/harry-rouhliadeff.png" },
   { "id": "jacob-holt", "name": "Jacob Holt", "number": 15, "position": "F", "photo": "/players/jacob-holt.png" },
   { "id": "jaylin-williams", "name": "Jaylin Williams", "number": 2, "position": "F", "photo": "/players/jaylin-williams.png" },
