@@ -280,6 +280,7 @@ export default function Toolbar({ editor }: { editor: Editor }) {
             onClick={editor.undoLastAction}
             disabled={!editor.canUndoLastAction}
           >
+            
             Undo last move
           </button>
           <button className="text-xs text-court-line/40 underline text-left" onClick={editor.clearAllRoutes}>
