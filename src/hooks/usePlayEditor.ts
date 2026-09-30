@@ -1306,6 +1306,7 @@ export function usePlayEditor() {
     movePlayer,
     addPlayerToCourt,
     removePlayerFromCourt,
+    swapPlayerOnCourt,
     syncCourtWithRoster,
     startDrawGesture,
     extendDrawGesture,
