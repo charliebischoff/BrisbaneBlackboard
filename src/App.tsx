@@ -71,6 +71,8 @@ export default function App() {
           onOpenRoster={openRoster}
           onOpenSettings={() => setIsSettingsOpen(true)}
           onClearRoutes={editor.clearAllRoutes}
+          onUndoLastAction={editor.undoLastAction}
+          canUndoLastAction={editor.canUndoLastAction}
           onFlip={editor.flipBoard}
         />
       )}
