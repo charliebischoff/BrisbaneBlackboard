@@ -552,6 +552,69 @@ export function usePlayEditor() {
     },
     [players, ballHolderId],
   )
+
+    /**
+   * Undoes the single most recently drawn action — whichever route segment or
+   * ball transfer carries the highest `seq`, across the whole board. Because
+   * it's necessarily the very last thing that happened, nothing since it
+   * depends on it — which is what makes a clean revert possible from just this
+   * one action's own recorded data, with no separate undo history to maintain.
+   */
+  const undoLastAction = useCallback(() => {
+    type Best =
+      | { kind: 'segment'; playerId: string; seq: number }
+      | { kind: 'transfer'; seq: number }
+  
+    let best: Best | null = null
+    for (const route of routes) {
+      for (const seg of route.segments) {
+        if (!best || seg.seq > best.seq) best = { kind: 'segment', playerId: route.playerId, seq: seg.seq }
+      }
+    }
+    for (const t of ballTransfers) {
+      if (!best || t.seq > best.seq) best = { kind: 'transfer', seq: t.seq }
+    }
+    if (!best) return
+  
+    stopPlaybackRef.current()
+    setPlaybackT(0)
+    setDrawGesture(null)
+    setBallGesture(null)
+  
+    if (best.kind === 'segment') {
+      const targetId = best.playerId
+      const route = routes.find((r) => r.playerId === targetId)
+      if (!route) return
+      const trimmedSegments = route.segments.slice(0, -1)
+  
+      const currentPlayer = players.find((p) => p.id === targetId)
+      const revertedPos = routeEndPoint(
+        trimmedSegments.length > 0 ? { ...route, segments: trimmedSegments } : undefined,
+        currentPlayer ? { x: currentPlayer.x, y: currentPlayer.y } : { x: 0, y: 0 },
+      )
+  
+      setPlayers((prev) => prev.map((p) => (p.id === targetId ? { ...p, x: revertedPos.x, y: revertedPos.y } : p)))
+      setRoutes((prev) =>
+        trimmedSegments.length > 0
+          ? prev.map((r) => (r.playerId === targetId ? { ...r, segments: trimmedSegments } : r))
+          : prev.filter((r) => r.playerId !== targetId),
+      )
+    } else {
+      const last = ballTransfers[ballTransfers.length - 1]
+      const fromPos = restingPositions.get(last.fromId)
+      if (fromPos && last.points.length > 0) {
+        const origin = last.points[0]
+        setBallOffset({ x: origin.x - fromPos.x, y: origin.y - fromPos.y })
+      }
+      setBallHolderId(last.fromId)
+      setBallTransfers((prev) => prev.slice(0, -1))
+    }
+  }, [routes, ballTransfers, players, restingPositions])
+  
+  const canUndoLastAction = useMemo(
+    () => routes.some((r) => r.segments.length > 0) || ballTransfers.length > 0,
+    [routes, ballTransfers],
+  )  
   
   /*
    * Substitutes one on-court player for another roster player, in place — same
@@ -1307,6 +1370,8 @@ export function usePlayEditor() {
     addPlayerToCourt,
     removePlayerFromCourt,
     swapPlayerOnCourt,
+    undoLastAction,
+    canUndoLastAction,
     syncCourtWithRoster,
     startDrawGesture,
     extendDrawGesture,
