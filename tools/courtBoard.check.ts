@@ -39,7 +39,7 @@ const R = (playerId: string, seq: number): PlayerRoute => ({
   playerId,
   segments: [{ type: 'motion', points: [{ x: 0, y: 0 }], seq }],
 })
-const T = (fromId: string, toId: string, seq: number): BallTransfer => ({
+const T = (fromId: string | null, toId: string | null, seq: number): BallTransfer => ({
   fromId,
   toId,
   points: [],
@@ -52,6 +52,7 @@ const board = (over: Partial<CourtBoard> = {}): CourtBoard => ({
   ballTransfers: [],
   ballOffset: { x: 27, y: 0 },
   ballHolderId: 'a',
+  ballLoosePos: null,
   seq: 0,
   ...over,
 })
@@ -211,15 +212,57 @@ console.log('\n9. buildDefaultBoard: the reset a never-visited court starts as')
   ])
 }
 
-console.log('\n10. CourtBoard field set — tripwire for a field added but never applied')
+console.log('\n10. a loose ball is per-court, and survives a switch away and back')
 {
-  // `setCourtType` applies these one by one. Add a seventh field to CourtBoard
+  // The half court has the ball lying out of bounds; the full court has it in
+  // hand. Neither may leak into the other — that's the whole point of the stash.
+  const loose: CourtBoard = board({ ballHolderId: null, ballLoosePos: { x: 5, y: 450 } })
+  const first = switchCourt({}, 'half', 'full', loose, fullDefaults)
+  eq('entering an unvisited court, the ball is in hand', first.board.ballHolderId, 'a')
+  eq('...and nothing is lying on the floor there', first.board.ballLoosePos, null)
+
+  const back = switchCourt(first.stash, 'full', 'half', first.board, halfDefaults)
+  eq('returning restores the loose spot', back.board.ballLoosePos, { x: 5, y: 450 })
+  eq('...with still nobody holding it', back.board.ballHolderId, null)
+
+  // Deep-copied, not aliased: mutating the restored board must not reach back
+  // into the stash the way a shared object reference would.
+  back.board.ballLoosePos!.x = 999
+  eq('restored loose spot is a copy', back.stash.half?.ballLoosePos, { x: 5, y: 450 })
+  const again = switchCourt(back.stash, 'half', 'full', back.board, fullDefaults)
+  eq('stashed loose spot is a copy too', again.stash.half?.ballLoosePos, { x: 999, y: 450 })
+}
+
+console.log('\n11. reconcileStash keeps floor-ended transfers, drops player-ended ones')
+{
+  // `gone(null)` is true — a null end would read as a departed player and every
+  // pickup and put-down on the board would silently vanish.
+  const stash: CourtStash = {
+    half: board({
+      players: [P('a')],
+      ballTransfers: [T(null, 'a', 1), T('a', null, 2), T('a', 'gone', 3), T('gone', 'a', 4)],
+      ballHolderId: null,
+      ballLoosePos: { x: 5, y: 450 },
+    }),
+  }
+  const out = reconcileStash(stash, new Set(['a']))
+  eq('only the transfers naming a departed player go', out.half?.ballTransfers.map((t) => t.seq), [1, 2])
+  eq('a loose ball is nobody\'s, so losing a player cannot strand it', out.half?.ballLoosePos, {
+    x: 5,
+    y: 450,
+  })
+  eq('...and it is not quietly handed to a survivor', out.half?.ballHolderId, null)
+}
+
+console.log('\n12. CourtBoard field set — tripwire for a field added but never applied')
+{
+  // `setCourtType` applies these one by one. Add an eighth field to CourtBoard
   // and forget the matching setter and the board restores incomplete, silently.
   // This fails the moment the shape changes, forcing a look at the apply step.
   eq(
-    'exactly the six known fields',
+    'exactly the seven known fields',
     Object.keys(buildDefaultBoard([P('a')], [{ x: 0, y: 0 }], 27, 'a')).sort(),
-    ['ballHolderId', 'ballOffset', 'ballTransfers', 'players', 'routes', 'seq'],
+    ['ballHolderId', 'ballLoosePos', 'ballOffset', 'ballTransfers', 'players', 'routes', 'seq'],
   )
 }
 

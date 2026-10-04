@@ -66,13 +66,17 @@ export interface PlayerRoute {
 }
 
 /**
- * One throw of the ball from one player to another, drawn in drag mode by
- * dragging the ball itself. Deliberately NOT a segment on the passer's route —
- * routes are movement-only, and anything in a route animates the *player*.
+ * One movement of the ball, drawn in drag mode by dragging the ball itself.
+ * Usually a throw from one player to another, but either end can be the floor:
+ * a put-down has no `toId`, a pickup has no `fromId`. Deliberately NOT a
+ * segment on the passer's route — routes are movement-only, and anything in a
+ * route animates the *player*.
  */
 export interface BallTransfer {
-  fromId: string
-  toId: string
+  /** null = the ball was lying loose on the floor at points[0] — a pickup, not a throw. */
+  fromId: string | null
+  /** null = the ball was put down at the last point and left there, unowned. */
+  toId: string | null
   points: Point[]
   /** Same global authoring order as RouteSegment.seq — see there. */
   seq: number
@@ -92,6 +96,11 @@ export interface Play {
   ballHolderId: string | null
   /** ball centre relative to its carrier's centre. Optional — plays saved before drag mode existed have none. */
   ballOffset?: Point
+  /**
+   * Where the ball lies when nobody holds it. Set only when `ballHolderId` is
+   * null — the two are never both populated. Absent/null = the ball is held.
+   */
+  ballLoose?: Point | null
   /** ordered ball throws, drag mode only. Optional for the same reason. */
   ballTransfers?: BallTransfer[]
   /** true if every route has zero segments — i.e. just a formation */

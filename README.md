@@ -115,6 +115,15 @@ calls a function it exposes.
   has it, named in the Toolbar too. Drawing a *dribble* keeps possession
   with that player; a *pass* that ends near another on-court player hands
   it to them automatically.
+- **The ball is a free object.** Drag it onto another player to pass, or
+  drop it anywhere else — including out of bounds, which both court images
+  have room for — and it simply lies there, belonging to nobody. Drag a
+  player so their route finishes on a loose ball and they pick it up. That
+  is how an inbound is drawn: put the ball on the baseline first, then walk
+  the inbounder over to it. Putting the ball down is a recorded action with
+  its own slot on the timeline, so playback shows it travelling there and
+  then waiting; picking it up is too, so the player walks over *before* the
+  ball attaches to them.
 - Play/pause/speed animation along drawn routes.
 - Save/load/delete plays, persisted to localStorage (capped at 100 plays).
 - Touch-friendly, sized for iPad.

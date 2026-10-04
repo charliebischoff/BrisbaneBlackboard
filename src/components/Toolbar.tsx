@@ -16,7 +16,8 @@ type Editor = {
   rawPlayers: Player[]
   ballHolderId: string | null
   setBallHolder: (id: string) => void
-  ballTransfers: { fromId: string; toId: string }[]
+  /** null on either end = the floor rather than a player — see BallTransfer. */
+  ballTransfers: { fromId: string | null; toId: string | null }[]
   ballHint: string | null
   dismissBallHint: () => void
   isPlaying: boolean
@@ -175,7 +176,8 @@ export default function Toolbar({ editor }: { editor: Editor }) {
         {editor.mode === 'drag' && (
           <p className="text-xs text-court-line/50 mt-2">
             Drag a player and they move, trailing their route — squiggly with the ball, solid
-            without. Drag the ball onto another player to pass.
+            without. Drag the ball onto another player to pass, or anywhere else — including out
+            of bounds — to leave it there. Drag a player onto a loose ball to pick it up.
           </p>
         )}
       </div>

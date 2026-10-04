@@ -141,6 +141,14 @@ export default function CourtEditor({ editor, onOpenRoster }: Props) {
     return closest?.id ?? null
   })()
 
+  /** True when the player being dragged would collect a loose ball on release. */
+  const ballPickupHover = (() => {
+    const loose = editor.ballLoosePos
+    if (!loose || !editor.drawGesture) return false
+    const tip = editor.drawGesture.points[editor.drawGesture.points.length - 1]
+    return !!tip && Math.hypot(tip.x - loose.x, tip.y - loose.y) <= passCatchRadius(editor.playerRadius)
+  })()
+
   const ballDisplayPosition = editor.ballGesture
     ? editor.ballGesture[editor.ballGesture.length - 1]
     : editor.ballPosition
@@ -226,9 +234,11 @@ export default function CourtEditor({ editor, onOpenRoster }: Props) {
             return <RouteLine key={route.playerId} segments={segments} color={TEAM_COLOR[player.team]} />
           })}
 
-          {/* Ball throws — kept out of player routes so they animate the ball, not the passer */}
+          {/* Ball throws — kept out of player routes so they animate the ball, not the passer.
+              A pickup (no `fromId`) draws nothing: the ball didn't travel, the player walked
+              to it, and that walk is already drawn as their route. */}
           {editor.ballTransfers
-            .filter((transfer) => transfer.seq >= visibleFloor)
+            .filter((transfer) => transfer.seq >= visibleFloor && transfer.fromId !== null)
             .map((transfer, i) => (
               <RouteLine key={`ball-${i}`} segments={[{ type: 'balltransfer', points: transfer.points }]} color={BALL_LINE_COLOR} />
             ))}
@@ -273,6 +283,18 @@ export default function CourtEditor({ editor, onOpenRoster }: Props) {
                   listening={false}
                 />
               ))}
+
+          {/* The mirror of the above: with the ball on the floor, dragging a
+              player shows where they have to finish to pick it up. */}
+          {editor.drawGesture && editor.ballLoosePos && (
+            <Circle
+              x={editor.ballLoosePos.x}
+              y={editor.ballLoosePos.y}
+              radius={passCatchRadius(editor.playerRadius)}
+              fill={ballPickupHover ? CATCH_FILL_ACTIVE : CATCH_FILL}
+              listening={false}
+            />
+          )}
 
           {editor.players.map((player) => (
             <PlayerToken

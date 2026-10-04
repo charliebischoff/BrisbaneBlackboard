@@ -27,6 +27,13 @@ export interface CourtBoard {
   ballOffset: Point
   ballHolderId: string | null
   /**
+   * Where the ball lies when nobody holds it — null while it is held. Never
+   * populated at the same time as `ballHolderId`. Per-court like everything
+   * else here: a ball left out of bounds on the half court stays there while
+   * the coach works on the full court.
+   */
+  ballLoosePos: Point | null
+  /**
    * The authoring-order counter as it stood on this court. Travels with the
    * board because it is shared by routes and transfers and drives playback
    * order: restore a board without it and the lines replay in the wrong order,
@@ -68,6 +75,9 @@ export function buildDefaultBoard(
     ballTransfers: [],
     ballOffset: { x: ballOffsetX, y: 0 },
     ballHolderId,
+    // A court being opened for the first time starts with the ball in hand —
+    // `ballHolderId` carries over, so there is nothing loose to carry with it.
+    ballLoosePos: null,
     seq: 0,
   }
 }
@@ -80,6 +90,7 @@ function copy(board: CourtBoard): CourtBoard {
     ballTransfers: [...board.ballTransfers],
     ballOffset: { ...board.ballOffset },
     ballHolderId: board.ballHolderId,
+    ballLoosePos: board.ballLoosePos ? { ...board.ballLoosePos } : null,
     seq: board.seq,
   }
 }
@@ -128,11 +139,16 @@ export function reconcileStash(stash: CourtStash, validIds: Set<string>): CourtS
       ...board,
       players,
       routes: board.routes.filter((r) => !gone(r.playerId)),
-      ballTransfers: board.ballTransfers.filter((t) => !gone(t.fromId) && !gone(t.toId)),
+      // A null end is the floor, not a departed player — `gone(null)` would be
+      // true and would quietly delete every pickup and put-down on the board.
+      ballTransfers: board.ballTransfers.filter(
+        (t) => (t.fromId === null || !gone(t.fromId)) && (t.toId === null || !gone(t.toId)),
+      ),
       // Hand the ball to a survivor rather than dropping it. This mirrors what
       // `syncCourtWithRoster` does to the live board — leaving it null would
       // restore a board whose ball has silently vanished, since nothing on the
-      // restore path picks a new holder.
+      // restore path picks a new holder. A ball already lying loose is left
+      // alone: it isn't anyone's, so losing a player can't strand it.
       ballHolderId:
         board.ballHolderId && gone(board.ballHolderId)
           ? players[0]?.id ?? null

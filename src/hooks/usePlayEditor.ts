@@ -22,6 +22,7 @@ import {
   routeEndPoint,
 } from '../lib/routeGeometry'
 import { buildDefaultBoard, CourtStash, reconcileStash, switchCourt } from '../lib/courtBoard'
+import { nearestCatcher, restingOffset } from '../lib/ballPlacement'
 import { rosterStore } from '../lib/rosterStore'
 import { localPlayStore } from '../lib/storage'
 import {
@@ -40,9 +41,18 @@ import { CourtSizes, Settings, settingsStore } from '../lib/settingsStore'
  */
 function playSignatureOf(p: Pick<Play, 'courtType' | 'players' | 'routes' | 'ballHolderId'> & {
   ballOffset: Point
+  ballLoose: Point | null
   ballTransfers: BallTransfer[]
 }): string {
-  return JSON.stringify([p.courtType, p.players, p.routes, p.ballHolderId, p.ballOffset, p.ballTransfers])
+  return JSON.stringify([
+    p.courtType,
+    p.players,
+    p.routes,
+    p.ballHolderId,
+    p.ballOffset,
+    p.ballLoose,
+    p.ballTransfers,
+  ])
 }
 
 /**
@@ -87,6 +97,26 @@ const DEFAULT_BALL_OFFSET: Point = { x: ballMinGap(BALL_RADIUS), y: 0 }
  */
 function ballEdgeMargin(ballRadius: number): number {
   return ballRadius + 12
+}
+
+/**
+ * The same thing for a ball nobody is holding — and deliberately tighter.
+ *
+ * `ballEdgeMargin` exists to stop a ball riding a carrier near the sideline
+ * from sliding off screen, and its 12 units of slack are free there because
+ * nothing is ever *aimed* at the edge. A loose ball is the opposite: out of
+ * bounds is the whole reason the coach put it there. The apron outside the
+ * lines is only about 30 court units on half court, so at the largest ball
+ * size that slack would swallow it whole and make a baseline inbound
+ * impossible to draw.
+ *
+ * The radius alone is exactly enough to keep the puck wholly on the stage,
+ * which is all this needs to do. Used by every place a loose position is
+ * clamped — the drop, the resting render, and the playback anchor — so the
+ * three can't disagree and make the ball snap between them.
+ */
+function looseBallMargin(ballRadius: number): number {
+  return ballRadius
 }
 
 function clampToCourt(p: Point, courtType: CourtType, margin: number): Point {
@@ -244,6 +274,13 @@ export function usePlayEditor() {
 
   // --- Ball, as a real object (drag mode) ------------------------------
   const [ballOffset, setBallOffset] = useState<Point>(DEFAULT_BALL_OFFSET)
+  /**
+   * Where the ball lies when nobody holds it — null while it is held. Together
+   * with `ballHolderId` this is one two-state value, not two: exactly one of
+   * them is ever set. Both null means there is no ball on the board at all,
+   * which only happens on an empty court.
+   */
+  const [ballLoosePos, setBallLoosePos] = useState<Point | null>(null)
   const [ballTransfers, setBallTransfers] = useState<BallTransfer[]>([])
   const [ballGesture, setBallGesture] = useState<Point[] | null>(null)
   const [ballHint, setBallHint] = useState<string | null>(null)
@@ -259,6 +296,7 @@ export function usePlayEditor() {
     ballTransfers: BallTransfer[]
     ballOffset: Point
     ballHolderId: string | null
+    ballLoosePos: Point | null
     seq: number
   } | null>(null)
 
@@ -371,14 +409,17 @@ export function usePlayEditor() {
       players,
       DEFAULT_SPOTS[type],
       ballMinGap(size.ballRadius, size.playerRadius),
-      ballHolderId,
+      // A loose ball's spot means nothing on the other court's geometry, so a
+      // court being opened for the first time starts with the ball in hand.
+      // Falling through with null would open it with no ball at all.
+      ballHolderId ?? players[0]?.id ?? null,
     )
 
     const { stash, board } = switchCourt(
       courtStash.current,
       courtType,
       type,
-      { players, routes, ballTransfers, ballOffset, ballHolderId, seq: seqRef.current },
+      { players, routes, ballTransfers, ballOffset, ballHolderId, ballLoosePos, seq: seqRef.current },
       defaults,
     )
     courtStash.current = stash
@@ -389,6 +430,7 @@ export function usePlayEditor() {
     setBallTransfers(board.ballTransfers)
     setBallOffset(board.ballOffset)
     setBallHolderId(board.ballHolderId)
+    setBallLoosePos(board.ballLoosePos)
     seqRef.current = board.seq
 
     setBallGesture(null)
@@ -397,7 +439,7 @@ export function usePlayEditor() {
     setDrawGesture(null)
     setPlaybackT(0)
     setErasedSnapshot(null)
-  }, [settings, courtType, players, routes, ballTransfers, ballOffset, ballHolderId])
+  }, [settings, courtType, players, routes, ballTransfers, ballOffset, ballHolderId, ballLoosePos])
 
   // --- Flip -------------------------------------------------------------
 
@@ -430,6 +472,10 @@ export function usePlayEditor() {
       // The ball's offset is relative to whoever holds it, so it mirrors as a
       // vector — running it through flipPoint would fling it across the court.
       setBallOffset((prev) => flipVector(prev, axis))
+      // A loose ball is the opposite case: it's an absolute court position with
+      // no carrier to be relative to, so it mirrors as a point like everything
+      // else. A ball out of bounds on the left baseline belongs on the right.
+      setBallLoosePos((prev) => (prev ? pt(prev) : prev))
       // Keep the erase snapshot in the orientation the board is in now, or
       // undoing an erase after a flip would paste the old side back.
       setErasedSnapshot((prev) =>
@@ -440,6 +486,7 @@ export function usePlayEditor() {
               routes: flipRoutes(prev.routes),
               ballTransfers: flipTransfers(prev.ballTransfers),
               ballOffset: flipVector(prev.ballOffset, axis),
+              ballLoosePos: prev.ballLoosePos ? pt(prev.ballLoosePos) : null,
             }
           : prev,
       )
@@ -463,8 +510,10 @@ export function usePlayEditor() {
       // Emptying the court leaves nobody holding the ball, and there is no
       // possession control in the UI — so whoever refills it gets the ball back,
       // or the board would stay ball-less until a reload.
+      // A ball lying loose is still a ball on the board, so it isn't handed
+      // over — the coach put it somewhere on purpose.
       // Decided outside the updater — those run twice under StrictMode.
-      if (ballHolderId == null) {
+      if (ballHolderId == null && ballLoosePos == null) {
         setBallHolderId(rosterPlayer.id)
         setBallOffset(DEFAULT_BALL_OFFSET)
       }
@@ -523,7 +572,11 @@ export function usePlayEditor() {
     // roster card left to remove them, still counting toward the 5-player cap.
     courtStash.current = reconcileStash(courtStash.current, new Set(byId.keys()))
     setRoutes((prev) => prev.filter((r) => !gone(r.playerId)))
-    setBallTransfers((prev) => prev.filter((t) => !gone(t.fromId) && !gone(t.toId)))
+    // A null end is the floor, not a departed player — testing it with `gone`
+    // would be true and would quietly delete every pickup and put-down.
+    setBallTransfers((prev) =>
+      prev.filter((t) => (t.fromId === null || !gone(t.fromId)) && (t.toId === null || !gone(t.toId))),
+    )
     setSelectedPlayerId((current) => (current && gone(current) ? null : current))
     setBallHolderId((current) => {
       if (!current || !gone(current)) return current
@@ -609,12 +662,22 @@ export function usePlayEditor() {
       )
     } else {
       const last = ballTransfers[ballTransfers.length - 1]
-      const fromPos = restingPositions.get(last.fromId)
-      if (fromPos && last.points.length > 0) {
-        const origin = last.points[0]
-        setBallOffset({ x: origin.x - fromPos.x, y: origin.y - fromPos.y })
+      const origin = last.points.length > 0 ? last.points[0] : null
+      if (last.fromId === null) {
+        // Undoing a pickup: the ball goes back to lying where it was picked up
+        // from, which is exactly the tail of the recorded line.
+        setBallHolderId(null)
+        if (origin) setBallLoosePos(origin)
+      } else {
+        // Undoing a throw or a put-down: back into the previous holder's hands,
+        // at the offset the line's tail records against where they stand.
+        const fromPos = restingPositions.get(last.fromId)
+        if (fromPos && origin) {
+          setBallOffset({ x: origin.x - fromPos.x, y: origin.y - fromPos.y })
+        }
+        setBallHolderId(last.fromId)
+        setBallLoosePos(null)
       }
-      setBallHolderId(last.fromId)
       setBallTransfers((prev) => prev.slice(0, -1))
     }
   }, [routes, ballTransfers, players, restingPositions])
@@ -691,65 +754,105 @@ export function usePlayEditor() {
   }, [])
 
   /**
-   * Release. The ball only lands if it's inside some other player's catch
-   * radius — there is no snapping and the rim isn't a target. Anywhere else and
-   * the whole gesture is thrown away, leaving the ball where it was.
+   * Release. Land it in a player's catch radius and they take possession, as
+   * before. Land it anywhere else — including out of bounds, which is the whole
+   * point — and the ball simply lies there until someone comes to get it.
    */
   const endBallDrag = useCallback(() => {
     if (!ballGesture) return
     const points = ballGesture
     setBallGesture(null)
 
-    const drop = points[points.length - 1]
-    let closest: { id: string; dist: number; pos: Point } | null = null
-    for (const p of players) {
-      if (p.id === ballHolderId) continue
-      const pos = restingPositions.get(p.id) ?? { x: p.x, y: p.y }
-      const dist = Math.hypot(pos.x - drop.x, pos.y - drop.y)
-      if (dist <= passCatchRadius(currentPlayerRadius) && (!closest || dist < closest.dist))
-        closest = { id: p.id, dist, pos }
+    // Where the ball *was* before this drag, so a recorded move starts from the
+    // right place whether it was in someone's hands or on the floor.
+    const fromId = ballHolderId
+    const origin = fromId
+      ? (() => {
+          // Not `points[0]` — that's the raw press position, so grabbing the
+          // token off-centre would skew the arrow.
+          const rest = restingPositions.get(fromId) ?? { x: 0, y: 0 }
+          return { x: rest.x + ballOffset.x, y: rest.y + ballOffset.y }
+        })()
+      : ballLoosePos
+
+    const drop = clampToCourt(
+      points[points.length - 1],
+      courtType,
+      looseBallMargin(currentBallRadius),
+    )
+    const closest = nearestCatcher(
+      drop,
+      players
+        .filter((p) => p.id !== ballHolderId)
+        .map((p) => ({ id: p.id, pos: restingPositions.get(p.id) ?? { x: p.x, y: p.y } })),
+      passCatchRadius(currentPlayerRadius),
+    )
+
+    // The drag is a pointing device, not a flight path — what's kept is the straight
+    // line from where the ball was to where it lands, however loopy the stroke was.
+    // These are the same two spots `ballPosition` interpolates between during
+    // playback, so the drawn arrow and the flying ball share one geometry. Storing
+    // the raw stroke would paint a path the ball never follows.
+    const record = (landing: Point, toId: string | null) => {
+      if (!origin) return
+      // Taken outside the updater — those run twice under StrictMode.
+      const seq = nextSeq()
+      setBallTransfers((prev) => [...prev, { fromId, toId, points: [origin, landing], seq }])
     }
 
     if (!closest) {
-      setBallHint('Drag ball to player')
+      if (fromId) {
+        record(drop, null)
+      } else {
+        // Nudging a ball that was already loose isn't a second action — it's the
+        // same one, re-aimed. If a put-down put it there, that put-down's landing
+        // point has to move with it: playback reads the end state back off the
+        // recorded line, so leaving it behind would make the ball jump to the old
+        // spot the moment the play finishes.
+        //
+        // Consequence worth knowing: a nudge is not its own action, so undo
+        // after one reverts the whole put-down rather than the nudge. That's
+        // the price of not filling the timeline with a slot per adjustment.
+        setBallTransfers((prev) => {
+          const last = prev[prev.length - 1]
+          if (!last || last.toId !== null || last.points.length === 0) return prev
+          return [
+            ...prev.slice(0, -1),
+            { ...last, points: [...last.points.slice(0, -1), drop] },
+          ]
+        })
+      }
+      setBallHolderId(null)
+      setBallLoosePos(drop)
+      setBallHint(null)
       return
     }
 
     // Rest the ball where it was dropped relative to the catcher, pushed out
     // along that same direction far enough not to overlap their token.
-    let dx = drop.x - closest.pos.x
-    let dy = drop.y - closest.pos.y
-    const len = Math.hypot(dx, dy)
-    if (len < 0.001) {
-      dx = DEFAULT_BALL_OFFSET.x
-      dy = DEFAULT_BALL_OFFSET.y
-    } else if (len < ballMinGap(currentBallRadius, currentPlayerRadius)) {
-      dx = (dx / len) * ballMinGap(currentBallRadius, currentPlayerRadius)
-      dy = (dy / len) * ballMinGap(currentBallRadius, currentPlayerRadius)
-    }
-
-    const fromId = ballHolderId
-    if (fromId) {
-      // The drag is a pointing device, not a flight path — what's kept is the straight
-      // line from where the ball was to where it lands, however loopy the stroke was.
-      // These are the same two spots `ballPosition` interpolates between during
-      // playback, so the drawn arrow and the flying ball share one geometry. Storing
-      // the raw stroke would paint a path the ball never follows.
-      // Tail comes from where the ball *is*, not from `points[0]` — that's the raw
-      // press position, so grabbing the token off-centre would skew the arrow.
-      const origin = restingPositions.get(fromId) ?? { x: 0, y: 0 }
-      const straight: Point[] = [
-        { x: origin.x + ballOffset.x, y: origin.y + ballOffset.y },
-        { x: closest.pos.x + dx, y: closest.pos.y + dy },
-      ]
-      // Taken outside the updater — those run twice under StrictMode.
-      const seq = nextSeq()
-      setBallTransfers((prev) => [...prev, { fromId, toId: closest!.id, points: straight, seq }])
-    }
+    const offset = restingOffset(
+      drop,
+      closest.pos,
+      ballMinGap(currentBallRadius, currentPlayerRadius),
+      DEFAULT_BALL_OFFSET,
+    )
+    record({ x: closest.pos.x + offset.x, y: closest.pos.y + offset.y }, closest.id)
     setBallHolderId(closest.id)
-    setBallOffset({ x: dx, y: dy })
+    setBallLoosePos(null)
+    setBallOffset(offset)
     setBallHint(null)
-  }, [ballGesture, players, ballHolderId, ballOffset, restingPositions, nextSeq, currentBallRadius, currentPlayerRadius])
+  }, [
+    ballGesture,
+    players,
+    ballHolderId,
+    ballLoosePos,
+    ballOffset,
+    restingPositions,
+    nextSeq,
+    courtType,
+    currentBallRadius,
+    currentPlayerRadius,
+  ])
 
   const dismissBallHint = useCallback(() => setBallHint(null), [])
 
@@ -801,6 +904,7 @@ export function usePlayEditor() {
    */
   const setBallHolder = useCallback((id: string) => {
     setBallHolderId(id)
+    setBallLoosePos(null)
     setBallTransfers([])
     setBallOffset(DEFAULT_BALL_OFFSET)
     setBallGesture(null)
@@ -868,8 +972,39 @@ export function usePlayEditor() {
 
     // Draw mode infers possession from the stroke that was drawn. Drag mode
     // doesn't — there the ball is dragged explicitly, so a player drag never
-    // changes who has it.
-    if (mode !== 'draw') return
+    // changes who has it. The one exception is a ball lying on the floor:
+    // walking onto it picks it up, which is how an inbounder collects the ball
+    // after it has been placed out of bounds.
+    if (mode !== 'draw') {
+      if (!ballLoosePos) return
+      const end = gesture.points[gesture.points.length - 1]
+      if (Math.hypot(end.x - ballLoosePos.x, end.y - ballLoosePos.y) > passCatchRadius(currentPlayerRadius)) return
+
+      const offset = restingOffset(
+        ballLoosePos,
+        end,
+        ballMinGap(currentBallRadius, currentPlayerRadius),
+        DEFAULT_BALL_OFFSET,
+      )
+      // Recorded as its own action *after* the move, so playback walks the
+      // player over first and only then hands them the ball. The line is the
+      // short hop from where the ball lay to where it ends up resting against
+      // them — `ballPosition` reads both ends straight back off it.
+      const pickupSeq = nextSeq()
+      setBallTransfers((prev) => [
+        ...prev,
+        {
+          fromId: null,
+          toId: gesture.playerId,
+          points: [{ ...ballLoosePos }, { x: end.x + offset.x, y: end.y + offset.y }],
+          seq: pickupSeq,
+        },
+      ])
+      setBallHolderId(gesture.playerId)
+      setBallLoosePos(null)
+      setBallOffset(offset)
+      return
+    }
 
     if (lineType === 'dribble') {
       setBallHolderId(gesture.playerId)
@@ -886,7 +1021,18 @@ export function usePlayEditor() {
       }
       if (closest) setBallHolderId(closest.id)
     }
-  }, [drawGesture, lineType, players, routes, mode, ballHolderId, nextSeq, currentPlayerRadius])
+  }, [
+    drawGesture,
+    lineType,
+    players,
+    routes,
+    mode,
+    ballHolderId,
+    ballLoosePos,
+    nextSeq,
+    currentBallRadius,
+    currentPlayerRadius,
+  ])
 
   const clearRoute = useCallback((playerId: string) => {
     setRoutes((prev) => prev.filter((r) => r.playerId !== playerId))
@@ -895,7 +1041,15 @@ export function usePlayEditor() {
   const clearAllRoutes = useCallback(() => {
     // The erase button is a single large tap with no confirm, so bank enough to
     // put the board back — one level, until the next erase.
-    setErasedSnapshot({ players, routes, ballTransfers, ballOffset, ballHolderId, seq: seqRef.current })
+    setErasedSnapshot({
+      players,
+      routes,
+      ballTransfers,
+      ballOffset,
+      ballHolderId,
+      ballLoosePos,
+      seq: seqRef.current,
+    })
     // A player's on-screen spot is the end of their route, so wiping the board
     // would teleport everyone back to their authored start. Commit where they
     // ended up first: erasing lines must not undo the arrangement.
@@ -911,7 +1065,7 @@ export function usePlayEditor() {
     setRoutes([])
     setBallTransfers([])
     seqRef.current = 0
-  }, [routes, players, ballTransfers, ballOffset, ballHolderId])
+  }, [routes, players, ballTransfers, ballOffset, ballHolderId, ballLoosePos])
 
   /** Puts back exactly what the last erase took. One level only. */
   const undoClearAll = useCallback(() => {
@@ -921,6 +1075,7 @@ export function usePlayEditor() {
     setBallTransfers(erasedSnapshot.ballTransfers)
     setBallOffset(erasedSnapshot.ballOffset)
     setBallHolderId(erasedSnapshot.ballHolderId)
+    setBallLoosePos(erasedSnapshot.ballLoosePos)
     seqRef.current = erasedSnapshot.seq
     setErasedSnapshot(null)
   }, [erasedSnapshot])
@@ -944,8 +1099,9 @@ export function usePlayEditor() {
       seq: number
       kind: 'move' | 'transfer'
       playerId?: string
-      fromId?: string
-      toId?: string
+      /** null on a transfer = the floor, not a player. See BallTransfer. */
+      fromId?: string | null
+      toId?: string | null
       points: Point[]
       weight: number
       tStart: number
@@ -1113,10 +1269,12 @@ export function usePlayEditor() {
    *
    * Each throw has an authored window on the timeline, same as every other
    * action. Inside it the ball lerps between the two players' live positions;
-   * outside it the ball is simply held by whoever owns it at that moment.
+   * outside it the ball is simply held by whoever owns it at that moment — or
+   * lying still on the floor, if nobody does.
    */
   const ballPosition = useMemo<Point | null>(() => {
       const margin = ballEdgeMargin(currentBallRadius)
+      const looseMargin = looseBallMargin(currentBallRadius)
       const byId = new Map(renderPlayers.map((p) => [p.id, p]))
       const at = (id: string | null): Point | null => {
         const p = id ? byId.get(id) : undefined
@@ -1126,6 +1284,13 @@ export function usePlayEditor() {
         const pos = at(id)
         return pos ? clampToCourt({ x: pos.x + ballOffset.x, y: pos.y + ballOffset.y }, courtType, margin) : null
       }
+      /** Where the ball sits with nothing animating — in hand, or on the floor. */
+      const atRest = (): Point | null =>
+        ballHolderId
+          ? held(ballHolderId)
+          : ballLoosePos
+            ? clampToCourt(ballLoosePos, courtType, looseMargin)
+            : null
 
     /**
      * Where the ball attaches to one end of a throw. `ballOffset` is a single
@@ -1134,10 +1299,14 @@ export function usePlayEditor() {
      * line already records both attachment points, so read the offset back off it,
      * relative to that player's resting spot, and hang it on their live position.
      */
-    const onThrow = (id: string, points: Point[], end: 0 | 1, tAt: number): Point | null => {
+    const onThrow = (id: string | null | undefined, points: Point[], end: 0 | 1, tAt: number): Point | null => {
+      const anchor = points.length > 1 ? points[end === 0 ? 0 : points.length - 1] : null
+      // The floor end of a pickup or a put-down. There is no player to hang it
+      // on and nothing to rebase against — the stored point is simply where the
+      // ball lay. Guarding here is what keeps a null id out of the lookup below.
+      if (id == null) return anchor ? clampToCourt(anchor, courtType, looseMargin) : null
       const pos = at(id)
       if (!pos) return null
-      const anchor = points.length > 1 ? points[end === 0 ? 0 : points.length - 1] : null
       // The anchor is absolute, recorded against where the player stood *when the
       // throw was drawn* — which is only the end of their whole route if they never
       // drew anything afterwards. Reading it back against `restingPositions` (the
@@ -1151,26 +1320,28 @@ export function usePlayEditor() {
       return clampToCourt({ x: pos.x + (anchor.x - rest.x), y: pos.y + (anchor.y - rest.y) },courtType,margin,)}
 
     const throws = timeline.filter((e) => e.kind === 'transfer')
-    if (throws.length === 0) return held(ballHolderId)
+    if (throws.length === 0) return atRest()
 
     // At rest the court shows the *end* state — players stand at the end of
     // their routes, so the ball sits with whoever ended up holding it, exactly
     // where it was dropped. The transfer timeline below only applies once
     // playback is running.
-    if (playbackT === 0) return held(ballHolderId)
+    if (playbackT === 0) return atRest()
 
     for (let k = 0; k < throws.length; k++) {
       const t = throws[k]
       // Waiting to be thrown: sit on the tail of this throw, or on the head of the
-      // previous one, so entering a flight never makes the ball jump.
+      // previous one, so entering a flight never makes the ball jump. A null end
+      // is the floor, and `onThrow` reads the stored point straight back — which
+      // is exactly what makes the ball lie still until someone collects it.
       if (playbackT < t.tStart) {
         return k === 0
-          ? onThrow(t.fromId!, t.points, 0, t.tStart)
-          : onThrow(throws[k - 1].toId!, throws[k - 1].points, 1, throws[k - 1].tStart)
+          ? onThrow(t.fromId, t.points, 0, t.tStart)
+          : onThrow(throws[k - 1].toId, throws[k - 1].points, 1, throws[k - 1].tStart)
       }
       if (playbackT < t.tEnd) {
-        const from = onThrow(t.fromId!, t.points, 0, t.tStart)
-        const to = onThrow(t.toId!, t.points, 1, t.tStart)
+        const from = onThrow(t.fromId, t.points, 0, t.tStart)
+        const to = onThrow(t.toId, t.points, 1, t.tStart)
         if (!from || !to) return from ?? to
         const span = t.tEnd - t.tStart
         const f = span > 0 ? (playbackT - t.tStart) / span : 1
@@ -1178,8 +1349,19 @@ export function usePlayEditor() {
       }
     }
     const last = throws[throws.length - 1]
-    return onThrow(last.toId!, last.points, 1, last.tStart)
-  }, [renderPlayers, players, timeline, ballHolderId, ballOffset, playerPositionsAt, playbackT, courtType, currentBallRadius])
+    return onThrow(last.toId, last.points, 1, last.tStart)
+  }, [
+    renderPlayers,
+    players,
+    timeline,
+    ballHolderId,
+    ballLoosePos,
+    ballOffset,
+    playerPositionsAt,
+    playbackT,
+    courtType,
+    currentBallRadius,
+  ])
 
   // --- Save / load ----------------------------------------------------
 
@@ -1196,16 +1378,26 @@ export function usePlayEditor() {
         courtType,
         ballHolderId,
         ballOffset,
+        ballLoose: ballLoosePos,
         ballTransfers,
         isFormationOnly: routes.every((r) => r.segments.length === 0) && ballTransfers.length === 0,
       }
     },
-    [playId, players, routes, courtType, ballHolderId, ballOffset, ballTransfers],
+    [playId, players, routes, courtType, ballHolderId, ballOffset, ballLoosePos, ballTransfers],
   )
 
   const playSignature = useMemo(
-    () => playSignatureOf({ courtType, players, routes, ballHolderId, ballOffset, ballTransfers }),
-    [courtType, players, routes, ballHolderId, ballOffset, ballTransfers],
+    () =>
+      playSignatureOf({
+        courtType,
+        players,
+        routes,
+        ballHolderId,
+        ballOffset,
+        ballLoose: ballLoosePos,
+        ballTransfers,
+      }),
+    [courtType, players, routes, ballHolderId, ballOffset, ballLoosePos, ballTransfers],
   )
 
   /**
@@ -1239,6 +1431,7 @@ export function usePlayEditor() {
           routes: snapshot.routes,
           ballHolderId: snapshot.ballHolderId,
           ballOffset: snapshot.ballOffset ?? DEFAULT_BALL_OFFSET,
+          ballLoose: snapshot.ballLoose ?? null,
           ballTransfers: snapshot.ballTransfers ?? [],
         }),
       )
@@ -1264,8 +1457,13 @@ export function usePlayEditor() {
       const seq = normalizeSequence(play.routes, play.ballTransfers ?? [])
       seqRef.current = seq.nextSeq
       setRoutes(seq.routes)
-      setBallHolderId(play.ballHolderId ?? play.players[0]?.id ?? null)
-      // Both optional — plays saved before drag mode existed simply have none.
+      // A play saved with the ball on the floor has no holder *on purpose*, so
+      // the "nobody has it, give it to someone" fallback must not fire there —
+      // that fallback exists for plays written before the ball was tracked.
+      const loose = play.ballLoose ?? null
+      setBallLoosePos(loose)
+      setBallHolderId(loose ? null : play.ballHolderId ?? play.players[0]?.id ?? null)
+      // All optional — plays saved before drag mode existed simply have none.
       setBallOffset(play.ballOffset ?? DEFAULT_BALL_OFFSET)
       setBallTransfers(seq.transfers)
       setBallGesture(null)
@@ -1282,8 +1480,9 @@ export function usePlayEditor() {
           courtType: play.courtType ?? 'half',
           players: play.players,
           routes: seq.routes,
-          ballHolderId: play.ballHolderId ?? play.players[0]?.id ?? null,
+          ballHolderId: loose ? null : play.ballHolderId ?? play.players[0]?.id ?? null,
           ballOffset: play.ballOffset ?? DEFAULT_BALL_OFFSET,
+          ballLoose: loose,
           ballTransfers: seq.transfers,
         }),
       )
@@ -1304,6 +1503,7 @@ export function usePlayEditor() {
     setRoutes([])
     seqRef.current = 0
     setBallHolderId(fresh[0]?.id ?? null)
+    setBallLoosePos(null)
     setBallOffset(DEFAULT_BALL_OFFSET)
     setBallTransfers([])
     setBallGesture(null)
@@ -1352,6 +1552,7 @@ export function usePlayEditor() {
     lineType,
     ballHolderId,
     ballOffset,
+    ballLoosePos,
     ballTransfers,
     ballGesture,
     ballPosition,
