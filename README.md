@@ -141,6 +141,20 @@ calls a function it exposes.
 - **Possession isn't time-aware during playback** — the gold ring reflects
   who holds the ball *right now* in the editor, not at each moment as the
   play animates. A proper fix ties it to the playback clock.
+- **Free-draw marks don't animate** — annotations drawn in marker mode are
+  static: visible from the first frame to the last, and they take no part in
+  the playback timeline. The agreed next step is to make them ordinary
+  single-track events (sorted by the `seq` they already carry, weighted by
+  path length like everything else) that pen themselves in, with
+  `durationSeconds` counting a mark as half a beat rather than a whole one.
+  `FreeDrawMarks` already takes the `reveal` prop that would drive it; what's
+  missing is a "polyline truncated at a fraction" helper beside
+  `pointAtFraction`, and `play()`'s early-return still ignores marks, so a
+  marks-only play wouldn't animate.
+- **A mark can only be removed by undo or by "R"** — there's no tap-a-stroke
+  to delete it, because a hit-testable stroke drawn over a player would
+  swallow that player's presses. A stray early mark therefore costs the whole
+  board. Stored marks are capped at 80, oldest dropped.
 - **Defense** — `Player.team` already supports `'defense'`, there's just no
   UI yet to add a defensive player to the court.
 - **Player photos** for players added after the initial roster — no upload

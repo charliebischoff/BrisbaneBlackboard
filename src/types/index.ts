@@ -82,6 +82,27 @@ export interface BallTransfer {
   seq: number
 }
 
+/**
+ * One freehand annotation stroke, drawn in marker mode on bare court. Belongs
+ * to nobody: it isn't a route, it doesn't move anything, and it's exempt from
+ * the visible/stored line caps — a defender's position is context the coach is
+ * talking over, not an action that should age off the board.
+ *
+ * `id` exists because routes key off `playerId` and a mark has no player.
+ * Points are stored rounded to whole court units; freehand floods points and
+ * the unrounded form is ~3x the bytes for precision no one can see.
+ */
+export interface FreeDrawMark {
+  id: string
+  points: Point[]
+  /**
+   * Same global authoring order as RouteSegment.seq — so the single undo can
+   * step back through marks and movement together, in the order they happened.
+   * Marks do not currently take part in playback; see README.
+   */
+  seq: number
+}
+
 export type CourtType = 'full' | 'half'
 
 export interface Play {
@@ -103,6 +124,8 @@ export interface Play {
   ballLoose?: Point | null
   /** ordered ball throws, drag mode only. Optional for the same reason. */
   ballTransfers?: BallTransfer[]
+  /** freehand annotations. Optional — plays saved before marker mode existed have none. */
+  marks?: FreeDrawMark[]
   /** true if every route has zero segments — i.e. just a formation */
   isFormationOnly: boolean
 }

@@ -17,13 +17,19 @@
  * back in — there is never a second live board kept in sync with the first, so
  * there is no invariant that can drift between switches.
  */
-import type { BallTransfer, CourtType, Player, PlayerRoute, Point } from '../types'
+import type { BallTransfer, CourtType, FreeDrawMark, Player, PlayerRoute, Point } from '../types'
 
 /** Everything about a court that survives a switch away from it. */
 export interface CourtBoard {
   players: Player[]
   routes: PlayerRoute[]
   ballTransfers: BallTransfer[]
+  /**
+   * Freehand annotations. Per-court for the same reason as everything else
+   * here: the two courts are different coordinate spaces, so a circle drawn
+   * around the half-court elbow means nothing on the full court.
+   */
+  marks: FreeDrawMark[]
   ballOffset: Point
   ballHolderId: string | null
   /**
@@ -73,6 +79,7 @@ export function buildDefaultBoard(
     }),
     routes: [],
     ballTransfers: [],
+    marks: [],
     ballOffset: { x: ballOffsetX, y: 0 },
     ballHolderId,
     // A court being opened for the first time starts with the ball in hand —
@@ -88,6 +95,7 @@ function copy(board: CourtBoard): CourtBoard {
     players: [...board.players],
     routes: [...board.routes],
     ballTransfers: [...board.ballTransfers],
+    marks: [...board.marks],
     ballOffset: { ...board.ballOffset },
     ballHolderId: board.ballHolderId,
     ballLoosePos: board.ballLoosePos ? { ...board.ballLoosePos } : null,
@@ -135,6 +143,9 @@ export function reconcileStash(stash: CourtStash, validIds: Set<string>): CourtS
     if (!board) continue
     const gone = (id: string) => !validIds.has(id)
     const players = board.players.filter((p) => validIds.has(p.id))
+    // `...board` carries `marks` through untouched, and that is deliberate: a
+    // mark belongs to nobody, so deleting a player can't orphan one. Filtering
+    // them here would silently wipe a coach's annotations on a roster edit.
     out[key] = {
       ...board,
       players,

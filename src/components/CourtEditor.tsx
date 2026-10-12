@@ -4,6 +4,7 @@ import Konva from 'konva'
 import Court from './Court'
 import PlayerToken from './PlayerToken'
 import RouteLine from './RouteLine'
+import FreeDrawMarks from './FreeDrawMarks'
 import BallToken from './BallToken'
 import PlayerSwapMenu from './PlayerSwapMenu'
 import { usePlayEditor, passCatchRadius } from '../hooks/usePlayEditor'
@@ -16,6 +17,12 @@ const BALL_LINE_COLOR = BALL_COLOR
 /** Catch-radius disc under each player while the ball is in the air — brighter for the one it's over. */
 const CATCH_FILL = 'rgba(224, 112, 58, 0.12)'
 const CATCH_FILL_ACTIVE = 'rgba(224, 112, 58, 0.32)'
+/**
+ * Marker ink. Deliberately none of the three colours already in play — offense
+ * blue, defense red, ball orange — so an annotation can never be mistaken for
+ * something a player or the ball did.
+ */
+const MARK_COLOR = '#1f2937'
 
 type Editor = ReturnType<typeof usePlayEditor>
 
@@ -74,11 +81,19 @@ export default function CourtEditor({ editor, onOpenRoster }: Props) {
    * the same rule.
    */
 
-  function stagePoint(stage: Konva.Stage): { x: number; y: number } | null {
+  /**
+   * `margin` makes the rule above explicit rather than baked in: a free-draw
+   * mark leaves no token behind, so none of that reasoning applies to it and it
+   * passes 0. Clamping an annotation inward by a token radius would stop a coach
+   * ringing the sideline, which is exactly where a defender's spot gets drawn.
+   */
+  function stagePoint(
+    stage: Konva.Stage,
+    margin = PLAYER_TOKEN_RADIUS,
+  ): { x: number; y: number } | null {
     const pointer = stage.getPointerPosition()
     if (!pointer) return null
-    const clamp = (v: number, max: number) =>
-      Math.min(max - PLAYER_TOKEN_RADIUS, Math.max(PLAYER_TOKEN_RADIUS, v))
+    const clamp = (v: number, max: number) => Math.min(max - margin, Math.max(margin, v))
     return {
       x: clamp(pointer.x / scale, COURT_WIDTH),
       y: clamp(pointer.y / scale, COURT_HEIGHT),
@@ -106,19 +121,47 @@ export default function CourtEditor({ editor, onOpenRoster }: Props) {
   }
 
   function handlePointerMove(e: Konva.KonvaEventObject<MouseEvent | TouchEvent>) {
-    if (!editor.drawGesture && !editor.ballGesture) return
+    if (!editor.drawGesture && !editor.ballGesture && !editor.markGesture) return
     const stage = e.target.getStage()
     if (!stage) return
-    const pt = stagePoint(stage)
-    if (!pt) return
     // Only one gesture is ever live: pressing the ball never starts a route.
-    if (editor.ballGesture) editor.extendBallDrag(pt.x, pt.y)
-    else editor.extendDrawGesture(pt.x, pt.y)
+    if (editor.ballGesture) {
+      const pt = stagePoint(stage)
+      if (pt) editor.extendBallDrag(pt.x, pt.y)
+    } else if (editor.drawGesture) {
+      const pt = stagePoint(stage)
+      if (pt) editor.extendDrawGesture(pt.x, pt.y)
+    } else {
+      // Unclamped: an annotation may run right to the edge of the stage.
+      const pt = stagePoint(stage, 0)
+      if (pt) editor.extendMarkGesture(pt.x, pt.y)
+    }
   }
 
   function handlePointerUp() {
     if (editor.ballGesture) editor.endBallDrag()
     if (editor.drawGesture) editor.endDrawGesture()
+    if (editor.markGesture) editor.endMarkGesture()
+  }
+
+  /**
+   * Press on bare court. The only press handler on the Stage itself — tokens
+   * capture their own, and they don't stop propagation, so this has to check
+   * that the press really landed on nothing. `Court` draws into a
+   * `listening={false}` layer, so bare court reports the Stage as the target;
+   * that's the same fact `handleStageClick` below relies on.
+   *
+   * A second finger is ignored rather than allowed to restart the stroke: on an
+   * iPad the usual cause is a palm, not a deliberate gesture.
+   */
+  function handleStagePointerDown(e: Konva.KonvaEventObject<MouseEvent | TouchEvent>) {
+    if (!editor.markerMode) return
+    const stage = e.target.getStage()
+    if (!stage || e.target !== stage) return
+    const evt = e.evt as TouchEvent
+    if (evt.touches && evt.touches.length > 1) return
+    const pt = stagePoint(stage, 0)
+    if (pt) editor.startMarkGesture(pt.x, pt.y)
   }
 
   function handleBallDragStart(e: Konva.KonvaEventObject<MouseEvent | TouchEvent>) {
@@ -213,6 +256,8 @@ export default function CourtEditor({ editor, onOpenRoster }: Props) {
         scaleY={scale}
         onClick={handleStageClick}
         onTap={handleStageClick}
+        onMouseDown={handleStagePointerDown}
+        onTouchStart={handleStagePointerDown}
         onMouseMove={handlePointerMove}
         onTouchMove={handlePointerMove}
         onMouseUp={handlePointerUp}
@@ -225,7 +270,27 @@ export default function CourtEditor({ editor, onOpenRoster }: Props) {
       >
         <Court courtType={editor.courtType} />
 
-        <Layer>
+        {/* Lines are ordinary Konva nodes, and arrowheads are filled polygons, so
+            they hit-test. In marker mode that would make every drawn line a dead
+            zone: the press would target the line, the bare-court test below
+            would fail, and the stroke would never start — on exactly the busy
+            board an annotation is most needed. Gated on markerMode rather than
+            switched off outright, so tapping a line still does nothing (instead
+            of newly clearing the selection) the rest of the time. */}
+        <Layer listening={!editor.markerMode}>
+          {/* Under the routes: an annotation is the backdrop a play is drawn
+              against, and a coach's ring around the elbow must never obscure
+              the cut that runs through it. */}
+          <FreeDrawMarks marks={editor.marks} reveal={editor.markReveal} color={MARK_COLOR} />
+
+          {editor.markGesture && editor.markGesture.length > 1 && (
+            <FreeDrawMarks
+              marks={[{ id: 'live', points: editor.markGesture, seq: -1 }]}
+              reveal={() => null}
+              color={MARK_COLOR}
+            />
+          )}
+
           {editor.routes.map((route) => {
             const player = editor.rawPlayers.find((p) => p.id === route.playerId)
             if (!player) return null
@@ -268,7 +333,11 @@ export default function CourtEditor({ editor, onOpenRoster }: Props) {
             })()}
         </Layer>
 
-        <Layer>
+        {/* Marker mode makes the court a canvas: the tokens stop listening, so a
+            stroke drawn across a player can't start a route the coach never
+            asked for, and every press lands on the Stage where the free-draw
+            handler can see it. One tap on the marker cap gives them back. */}
+        <Layer listening={!editor.markerMode}>
           {/* Drop targets, only while the ball is actually in hand */}
           {editor.ballGesture &&
             editor.players

@@ -15,7 +15,8 @@ npx tsc -b --noEmit    # type-check only
 There is no test runner and no lint config. Automated checks are `tsc -b` (inside
 `npm run build`) plus `npm run check` — headless assertion scripts under `tools/`
 that esbuild-bundle and run on node, one per pure module (`courtBoard`,
-`routeGeometry`, `storage` + `settingsStore`). Run both after changes. A new
+`playSequence`, `routeGeometry`, `storage` + `settingsStore`, `tapGesture`,
+`ballPlacement`). Run both after changes. A new
 check goes in the same style rather than pulling in a test framework; they live
 outside `src/` so `tsc -b` doesn't demand @types/node.
 

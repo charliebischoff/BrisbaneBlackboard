@@ -3,6 +3,7 @@ import { v4 as uuid } from 'uuid'
 import {
   BallTransfer,
   CourtType,
+  FreeDrawMark,
   LineType,
   Play,
   Player,
@@ -23,6 +24,7 @@ import {
 } from '../lib/routeGeometry'
 import { buildDefaultBoard, CourtStash, reconcileStash, switchCourt } from '../lib/courtBoard'
 import { nearestCatcher, restingOffset } from '../lib/ballPlacement'
+import { normalizeSequence } from '../lib/playSequence'
 import { rosterStore } from '../lib/rosterStore'
 import { localPlayStore } from '../lib/storage'
 import {
@@ -43,6 +45,10 @@ function playSignatureOf(p: Pick<Play, 'courtType' | 'players' | 'routes' | 'bal
   ballOffset: Point
   ballLoose: Point | null
   ballTransfers: BallTransfer[]
+  // Required, not optional: a marks-only edit is still an edit, and leaving it
+  // out of the signature would let the coach close a play they had annotated
+  // without ever being told it was unsaved.
+  marks: FreeDrawMark[]
 }): string {
   return JSON.stringify([
     p.courtType,
@@ -52,6 +58,7 @@ function playSignatureOf(p: Pick<Play, 'courtType' | 'players' | 'routes' | 'bal
     p.ballOffset,
     p.ballLoose,
     p.ballTransfers,
+    p.marks,
   ])
 }
 
@@ -66,6 +73,18 @@ export type EditorMode = 'position' | 'draw' | 'drag'
 const MAX_OFFENSE_ON_COURT = 5
 const MIN_POINT_SPACING = 4 // court units between recorded points while dragging — keeps arrays small
 const MIN_GESTURE_LENGTH = 6 // shorter than this, treat the press as a tap (select) not a draw
+
+/**
+ * Hard ceiling on stored annotations.
+ *
+ * Marks are deliberately exempt from the `MAX_STORED_LINES` pruning that bounds
+ * routes and transfers — an annotation is context the coach is talking over, not
+ * an action that should age off the board. That exemption leaves them as the one
+ * unbounded array in the editor, and freehand floods points, so they get their
+ * own cap by count instead. Drop-oldest: 80 strokes is far past any real board,
+ * and a coach who gets there has long since lost track of the early ones.
+ */
+const MAX_MARKS = 80
 
 /** Floor for how close a pass has to end to a player to count as reaching them. */
 export const PASS_CATCH_RADIUS = 38
@@ -222,42 +241,6 @@ interface DrawGesture {
   points: Point[]
 }
 
-/**
- * Stamps a global authoring order onto a play loaded from storage.
- *
- * Plays written before sequencing existed have no `seq` at all; the best
- * available guess at their order is the order things sit in the arrays. Doing it
- * here, at the load boundary, keeps playback free of any legacy branch.
- * Returns the next free counter value alongside the normalized data.
- *
- * Ball throws are straightened here too: plays written before `endBallDrag` began
- * committing a straight line still carry the raw drag stroke, which playback has
- * never followed. First and last point preserve the throw's real direction; the
- * exact endpoints of an old throw aren't recoverable (`ballOffset` describes only
- * the final holder), so nothing is invented beyond dropping the curve.
- */
-function normalizeSequence(
-  routes: PlayerRoute[],
-  transfers: BallTransfer[],
-): { routes: PlayerRoute[]; transfers: BallTransfer[]; nextSeq: number } {
-  let counter = 0
-  const stamp = (seq: number | undefined): number => {
-    const value = typeof seq === 'number' ? seq : counter
-    counter = Math.max(counter, value) + 1
-    return value
-  }
-  const nextRoutes = routes.map((r) => ({
-    ...r,
-    segments: r.segments.map((s) => ({ ...s, seq: stamp(s.seq) })),
-  }))
-  const nextTransfers = transfers.map((t) => ({
-    ...t,
-    seq: stamp(t.seq),
-    points: t.points.length > 2 ? [t.points[0], t.points[t.points.length - 1]] : t.points,
-  }))
-  return { routes: nextRoutes, transfers: nextTransfers, nextSeq: counter }
-}
-
 export function usePlayEditor() {
   const [playId, setPlayId] = useState(() => uuid())
   const [playName, setPlayName] = useState('Untitled Play')
@@ -271,6 +254,20 @@ export function usePlayEditor() {
   const [lineType, setLineType] = useState<LineType>('motion')
   const [ballHolderId, setBallHolderId] = useState<string | null>(() => buildDefaultPlayers('half')[0]?.id ?? null)
   const [drawGesture, setDrawGesture] = useState<DrawGesture | null>(null)
+
+  // --- Free draw (marker mode) -----------------------------------------
+  /**
+   * Freehand annotations, in authoring order. Append-only and sorted by `seq`,
+   * which `undoLastAction` relies on — do not sort or splice this array.
+   */
+  const [marks, setMarks] = useState<FreeDrawMark[]>([])
+  /** While on, bare court draws and the tokens go inert. Session-only, never saved. */
+  const [markerMode, setMarkerMode] = useState(false)
+  /**
+   * The stroke being dragged out right now. A bare point list rather than a
+   * DrawGesture: a mark belongs to no player, so there is no id to carry.
+   */
+  const [markGesture, setMarkGesture] = useState<Point[] | null>(null)
 
   // --- Ball, as a real object (drag mode) ------------------------------
   const [ballOffset, setBallOffset] = useState<Point>(DEFAULT_BALL_OFFSET)
@@ -294,6 +291,7 @@ export function usePlayEditor() {
     players: Player[]
     routes: PlayerRoute[]
     ballTransfers: BallTransfer[]
+    marks: FreeDrawMark[]
     ballOffset: Point
     ballHolderId: string | null
     ballLoosePos: Point | null
@@ -419,7 +417,16 @@ export function usePlayEditor() {
       courtStash.current,
       courtType,
       type,
-      { players, routes, ballTransfers, ballOffset, ballHolderId, ballLoosePos, seq: seqRef.current },
+      {
+        players,
+        routes,
+        ballTransfers,
+        marks,
+        ballOffset,
+        ballHolderId,
+        ballLoosePos,
+        seq: seqRef.current,
+      },
       defaults,
     )
     courtStash.current = stash
@@ -428,6 +435,7 @@ export function usePlayEditor() {
     setPlayers(board.players)
     setRoutes(board.routes)
     setBallTransfers(board.ballTransfers)
+    setMarks(board.marks)
     setBallOffset(board.ballOffset)
     setBallHolderId(board.ballHolderId)
     setBallLoosePos(board.ballLoosePos)
@@ -437,9 +445,20 @@ export function usePlayEditor() {
     setBallHint(null)
     setSelectedPlayerId(null)
     setDrawGesture(null)
+    setMarkGesture(null)
     setPlaybackT(0)
     setErasedSnapshot(null)
-  }, [settings, courtType, players, routes, ballTransfers, ballOffset, ballHolderId, ballLoosePos])
+  }, [
+    settings,
+    courtType,
+    players,
+    routes,
+    ballTransfers,
+    marks,
+    ballOffset,
+    ballHolderId,
+    ballLoosePos,
+  ])
 
   // --- Flip -------------------------------------------------------------
 
@@ -465,10 +484,15 @@ export function usePlayEditor() {
         }))
       const flipTransfers = (list: BallTransfer[]) =>
         list.map((t) => ({ ...t, points: t.points.map(pt) }))
+      // Absolute court positions like a route's, so they mirror as points. A
+      // ring drawn around the left block belongs around the right one.
+      const flipMarks = (list: FreeDrawMark[]) =>
+        list.map((m) => ({ ...m, points: m.points.map(pt) }))
 
       setPlayers(flipPlayers)
       setRoutes(flipRoutes)
       setBallTransfers(flipTransfers)
+      setMarks(flipMarks)
       // The ball's offset is relative to whoever holds it, so it mirrors as a
       // vector — running it through flipPoint would fling it across the court.
       setBallOffset((prev) => flipVector(prev, axis))
@@ -485,6 +509,7 @@ export function usePlayEditor() {
               players: flipPlayers(prev.players),
               routes: flipRoutes(prev.routes),
               ballTransfers: flipTransfers(prev.ballTransfers),
+              marks: flipMarks(prev.marks),
               ballOffset: flipVector(prev.ballOffset, axis),
               ballLoosePos: prev.ballLoosePos ? pt(prev.ballLoosePos) : null,
             }
@@ -493,6 +518,7 @@ export function usePlayEditor() {
       // A stroke half-drawn against the old orientation has no mirrored meaning.
       setDrawGesture(null)
       setBallGesture(null)
+      setMarkGesture(null)
     },
     [courtType],
   )
@@ -625,7 +651,8 @@ export function usePlayEditor() {
     type Best =
       | { kind: 'segment'; playerId: string; seq: number }
       | { kind: 'transfer'; seq: number }
-  
+      | { kind: 'mark'; id: string; seq: number }
+
     let best: Best | null = null
     for (const route of routes) {
       for (const seg of route.segments) {
@@ -635,13 +662,19 @@ export function usePlayEditor() {
     for (const t of ballTransfers) {
       if (!best || t.seq > best.seq) best = { kind: 'transfer', seq: t.seq }
     }
+    // Marks share the counter, so an annotation drawn after a cut undoes before
+    // it — one chronological history, not a separate annotation history.
+    for (const m of marks) {
+      if (!best || m.seq > best.seq) best = { kind: 'mark', id: m.id, seq: m.seq }
+    }
     if (!best) return
-  
+
     stopPlaybackRef.current()
     setPlaybackT(0)
     setDrawGesture(null)
     setBallGesture(null)
-  
+    setMarkGesture(null)
+
     if (best.kind === 'segment') {
       const targetId = best.playerId
       const route = routes.find((r) => r.playerId === targetId)
@@ -660,6 +693,13 @@ export function usePlayEditor() {
           ? prev.map((r) => (r.playerId === targetId ? { ...r, segments: trimmedSegments } : r))
           : prev.filter((r) => r.playerId !== targetId),
       )
+    } else if (best.kind === 'mark') {
+      // Removed by id rather than by position. `marks` is append-only and
+      // seq-ordered, so the two agree today — but an annotation leaves nothing
+      // else behind, and matching the id is what keeps this honest if that
+      // invariant is ever broken.
+      const targetId = best.id
+      setMarks((prev) => prev.filter((m) => m.id !== targetId))
     } else {
       const last = ballTransfers[ballTransfers.length - 1]
       const origin = last.points.length > 0 ? last.points[0] : null
@@ -680,12 +720,12 @@ export function usePlayEditor() {
       }
       setBallTransfers((prev) => prev.slice(0, -1))
     }
-  }, [routes, ballTransfers, players, restingPositions])
-  
+  }, [routes, ballTransfers, marks, players, restingPositions])
+
   const canUndoLastAction = useMemo(
-    () => routes.some((r) => r.segments.length > 0) || ballTransfers.length > 0,
-    [routes, ballTransfers],
-  )  
+    () => routes.some((r) => r.segments.length > 0) || ballTransfers.length > 0 || marks.length > 0,
+    [routes, ballTransfers, marks],
+  )
   
   /*
    * Substitutes one on-court player for another roster player, in place — same
@@ -737,7 +777,7 @@ export function usePlayEditor() {
       if (mode !== 'drag') return
       // One gesture at a time. A second finger landing mid-stroke would replace
       // the live one, silently binning the first player's half-drawn route.
-      if (drawGesture || ballGesture) return
+      if (drawGesture || ballGesture || markGesture) return
       // A new edit supersedes the erase — restoring after it would bin this work.
       setErasedSnapshot(null)
       // Editing and the playback clock don't mix — drop back to the resting board.
@@ -746,7 +786,7 @@ export function usePlayEditor() {
       setBallHint(null)
       setBallGesture([{ x, y }])
     },
-    [mode, drawGesture, ballGesture],
+    [mode, drawGesture, ballGesture, markGesture],
   )
 
   const extendBallDrag = useCallback((x: number, y: number) => {
@@ -919,7 +959,7 @@ export function usePlayEditor() {
       if (mode !== 'draw' && mode !== 'drag') return
       // Same single-gesture rule as the ball: a second finger must not steal an
       // in-progress stroke.
-      if (drawGesture || ballGesture) return
+      if (drawGesture || ballGesture || markGesture) return
       // A new edit supersedes the erase — restoring after it would bin this work.
       setErasedSnapshot(null)
       const player = players.find((p) => p.id === playerId)
@@ -932,7 +972,7 @@ export function usePlayEditor() {
       const start = routeEndPoint(route, { x: player.x, y: player.y })
       setDrawGesture({ playerId, points: [start] })
     },
-    [mode, players, routes, drawGesture, ballGesture],
+    [mode, players, routes, drawGesture, ballGesture, markGesture],
   )
 
   /** Appends a point to the in-progress gesture — called on pointer move while dragging. */
@@ -1034,6 +1074,83 @@ export function usePlayEditor() {
     currentPlayerRadius,
   ])
 
+  // --- Free draw (marker mode) -----------------------------------------
+
+  /**
+   * Turns the court into a canvas and back.
+   *
+   * While on, the tokens go inert (the players/ball layer stops listening) so a
+   * stroke drawn across a player can't start a route the coach didn't want —
+   * the whole reason this is an explicit mode rather than "any press on bare
+   * court draws". Any gesture in flight is dropped, the same hygiene as a court
+   * switch or a flip: whatever is half-drawn means nothing on the other side.
+   */
+  const toggleMarkerMode = useCallback(() => {
+    setMarkerMode((prev) => !prev)
+    setDrawGesture(null)
+    setBallGesture(null)
+    setMarkGesture(null)
+    setSelectedPlayerId(null)
+  }, [])
+
+  /** Starts an annotation stroke — called on press-down on bare court, marker mode only. */
+  const startMarkGesture = useCallback(
+    (x: number, y: number) => {
+      if (!markerMode) return
+      // Same single-gesture rule as routes and the ball.
+      if (drawGesture || ballGesture || markGesture) return
+      setErasedSnapshot(null)
+      // A press means "edit", so the clock goes back to rest rather than leaving
+      // the board rendered mid-playback.
+      stopPlaybackRef.current()
+      setPlaybackT(0)
+      setMarkGesture([{ x, y }])
+    },
+    [markerMode, drawGesture, ballGesture, markGesture],
+  )
+
+  /** Appends a point to the in-progress stroke, at the same spacing routes use. */
+  const extendMarkGesture = useCallback((x: number, y: number) => {
+    setMarkGesture((prev) => {
+      if (!prev) return prev
+      const last = prev[prev.length - 1]
+      if (Math.hypot(x - last.x, y - last.y) < MIN_POINT_SPACING) return prev
+      return [...prev, { x, y }]
+    })
+  }, [])
+
+  /** Commits the stroke on release, or discards a tap. */
+  const endMarkGesture = useCallback(() => {
+    if (!markGesture) return
+    const points = markGesture
+    setMarkGesture(null)
+
+    // Same floor routes use. Here it doubles as the palm-speck defence: a touch
+    // that lands and lifts without travelling leaves nothing behind.
+    if (pathLength(points) < MIN_GESTURE_LENGTH) return
+
+    // Rounded to whole court units at the boundary. The raw values are quotients
+    // of the display scale (237.41666666666666), which is ~3x the bytes in
+    // localStorage for precision finer than a pixel on any screen this runs on.
+    // flipPoint is `W - x`, so integers stay integers and a flip stays exact.
+    const snapped = points.map((p) => ({ x: Math.round(p.x), y: Math.round(p.y) }))
+    // seq read outside the updater: StrictMode double-invokes those, which would
+    // burn two counter values per stroke.
+    const seq = nextSeq()
+    setMarks((prev) => [...prev, { id: uuid(), points: snapped, seq }].slice(-MAX_MARKS))
+  }, [markGesture, nextSeq])
+
+  /**
+   * How much of a mark to draw, as a fraction, or null for "all of it".
+   *
+   * Always null today — marks are static annotation and take no part in the
+   * playback clock. It exists as a function per mark so that when marks do join
+   * the timeline, this body reads `playbackT` against that mark's window and the
+   * renderer doesn't change at all. `playbackT === 0` will mean authoring, i.e.
+   * null, matching how `displayPlayers` and `ballPosition` already decide.
+   */
+  const markReveal = useCallback((_mark: FreeDrawMark): number | null => null, [])
+
   const clearRoute = useCallback((playerId: string) => {
     setRoutes((prev) => prev.filter((r) => r.playerId !== playerId))
   }, [])
@@ -1045,6 +1162,7 @@ export function usePlayEditor() {
       players,
       routes,
       ballTransfers,
+      marks,
       ballOffset,
       ballHolderId,
       ballLoosePos,
@@ -1064,8 +1182,13 @@ export function usePlayEditor() {
     )
     setRoutes([])
     setBallTransfers([])
+    // Annotations go with the lines. "R" reads as "wipe the board", and leaving
+    // them is not an option anyway: the counter resets below, so marks that
+    // survived would keep seq values above everything drawn afterwards and undo
+    // would walk backwards through them before touching the new work.
+    setMarks([])
     seqRef.current = 0
-  }, [routes, players, ballTransfers, ballOffset, ballHolderId, ballLoosePos])
+  }, [routes, players, ballTransfers, marks, ballOffset, ballHolderId, ballLoosePos])
 
   /** Puts back exactly what the last erase took. One level only. */
   const undoClearAll = useCallback(() => {
@@ -1073,6 +1196,7 @@ export function usePlayEditor() {
     setPlayers(erasedSnapshot.players)
     setRoutes(erasedSnapshot.routes)
     setBallTransfers(erasedSnapshot.ballTransfers)
+    setMarks(erasedSnapshot.marks)
     setBallOffset(erasedSnapshot.ballOffset)
     setBallHolderId(erasedSnapshot.ballHolderId)
     setBallLoosePos(erasedSnapshot.ballLoosePos)
@@ -1380,10 +1504,24 @@ export function usePlayEditor() {
         ballOffset,
         ballLoose: ballLoosePos,
         ballTransfers,
+        marks,
+        // Annotations aren't movement, so a board with nothing but marks on it
+        // is still a formation — this answers "does anything happen in this
+        // play?", which playback cares about and marks take no part in.
         isFormationOnly: routes.every((r) => r.segments.length === 0) && ballTransfers.length === 0,
       }
     },
-    [playId, players, routes, courtType, ballHolderId, ballOffset, ballLoosePos, ballTransfers],
+    [
+      playId,
+      players,
+      routes,
+      courtType,
+      ballHolderId,
+      ballOffset,
+      ballLoosePos,
+      ballTransfers,
+      marks,
+    ],
   )
 
   const playSignature = useMemo(
@@ -1396,8 +1534,9 @@ export function usePlayEditor() {
         ballOffset,
         ballLoose: ballLoosePos,
         ballTransfers,
+        marks,
       }),
-    [courtType, players, routes, ballHolderId, ballOffset, ballLoosePos, ballTransfers],
+    [courtType, players, routes, ballHolderId, ballOffset, ballLoosePos, ballTransfers, marks],
   )
 
   /**
@@ -1409,7 +1548,7 @@ export function usePlayEditor() {
    */
   const isDirty =
     savedSignature === null
-      ? routes.some((r) => r.segments.length > 0) || ballTransfers.length > 0
+      ? routes.some((r) => r.segments.length > 0) || ballTransfers.length > 0 || marks.length > 0
       : playSignature !== savedSignature
 
   /**
@@ -1433,6 +1572,7 @@ export function usePlayEditor() {
           ballOffset: snapshot.ballOffset ?? DEFAULT_BALL_OFFSET,
           ballLoose: snapshot.ballLoose ?? null,
           ballTransfers: snapshot.ballTransfers ?? [],
+          marks: snapshot.marks ?? [],
         }),
       )
     },
@@ -1454,9 +1594,10 @@ export function usePlayEditor() {
       // Plays written before sequencing carry no order; stamp one from array order
       // here, and rebase the counter so newly drawn actions land after, not among,
       // what was loaded.
-      const seq = normalizeSequence(play.routes, play.ballTransfers ?? [])
+      const seq = normalizeSequence(play.routes, play.ballTransfers ?? [], play.marks ?? [])
       seqRef.current = seq.nextSeq
       setRoutes(seq.routes)
+      setMarks(seq.marks)
       // A play saved with the ball on the floor has no holder *on purpose*, so
       // the "nobody has it, give it to someone" fallback must not fire there —
       // that fallback exists for plays written before the ball was tracked.
@@ -1470,6 +1611,9 @@ export function usePlayEditor() {
       setBallHint(null)
       setSelectedPlayerId(null)
       setDrawGesture(null)
+      setMarkGesture(null)
+      // Opening a play should put the board in front of the coach, not a pen.
+      setMarkerMode(false)
       setPlaybackT(0)
       setErasedSnapshot(null)
       // A just-loaded play is by definition unmodified. The defaults applied
@@ -1484,6 +1628,7 @@ export function usePlayEditor() {
           ballOffset: play.ballOffset ?? DEFAULT_BALL_OFFSET,
           ballLoose: loose,
           ballTransfers: seq.transfers,
+          marks: seq.marks,
         }),
       )
     },
@@ -1510,6 +1655,9 @@ export function usePlayEditor() {
     setBallHint(null)
     setSelectedPlayerId(null)
     setDrawGesture(null)
+    setMarks([])
+    setMarkGesture(null)
+    setMarkerMode(false)
     setPlaybackT(0)
     setErasedSnapshot(null)
     // Never saved — but an empty court isn't dirty either (see isDirty).
@@ -1558,6 +1706,14 @@ export function usePlayEditor() {
     ballPosition,
     ballHint,
     drawGesture,
+    marks,
+    markerMode,
+    markGesture,
+    toggleMarkerMode,
+    startMarkGesture,
+    extendMarkGesture,
+    endMarkGesture,
+    markReveal,
     isPlaying,
     speed,
     playbackT,

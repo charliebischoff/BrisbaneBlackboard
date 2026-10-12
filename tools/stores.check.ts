@@ -148,7 +148,33 @@ console.log('\n4. plays: a corrupt or partial blob must never break the read pat
   noThrow('a non-array blob does not throw', () => localPlayStore.getAll())
 }
 
-console.log('\n5. settings: defaults and round trip')
+console.log('\n5. plays: free-draw marks round trip, and a play saved before they existed still loads')
+{
+  // `Play.marks` is optional and there is no storage version bump, so nothing in
+  // the type system notices if the field stops being written. This is the only
+  // automated guard that an annotation survives save -> reload -> load at all.
+  reset()
+  const marked = play('m', '2026-01-01T00:00:00.000Z', {
+    marks: [{ id: 'k1', points: [{ x: 1, y: 2 }, { x: 3, y: 4 }], seq: 7 }],
+  })
+  localPlayStore.save(marked)
+  const read = localPlayStore.getAll()[0]
+  eq('the mark comes back whole', read.marks, marked.marks)
+  eq('...including the seq undo orders by', read.marks![0].seq, 7)
+
+  // Every play saved before marker mode shipped has no `marks` key. The editor
+  // reads `play.marks ?? []`, so this must stay absent-not-crash, never `{}`.
+  reset()
+  const legacy = { ...play('old', '2026-01-01T00:00:00.000Z') } as any
+  delete legacy.marks
+  store.set(PLAYS_KEY, JSON.stringify([legacy]))
+  noThrow('a play with no marks field loads', () => localPlayStore.getAll())
+  // `check`, not `eq` — JSON.stringify(undefined) is undefined, so eq would pass
+  // for anything non-serializable. The point is that the key is absent.
+  check('the key stays absent, not an empty object', !('marks' in localPlayStore.getAll()[0]))
+}
+
+console.log('\n6. settings: defaults and round trip')
 {
   reset()
   eq('empty storage -> defaults', settingsStore.get(), DEFAULT_SETTINGS)
@@ -161,7 +187,7 @@ console.log('\n5. settings: defaults and round trip')
   eq('courts stay independent', settingsStore.get().sizes.half.playerRadius, 20)
 }
 
-console.log('\n6. settings: anything read back is clamped to what the sliders can express')
+console.log('\n7. settings: anything read back is clamped to what the sliders can express')
 {
   reset()
   const out = settingsStore.save({
@@ -186,7 +212,7 @@ console.log('\n6. settings: anything read back is clamped to what the sliders ca
   eq('missing sizes fall back to defaults', settingsStore.get().sizes, DEFAULT_SETTINGS.sizes)
 }
 
-console.log('\n7. settings: legacy blobs migrate instead of resetting')
+console.log('\n8. settings: legacy blobs migrate instead of resetting')
 {
   // v2: one flat pair of sizes. Full court takes the 1.5x bump it used to get
   // at render time, so an upgrade changes nothing visually on either court.

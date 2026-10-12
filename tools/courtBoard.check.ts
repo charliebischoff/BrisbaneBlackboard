@@ -20,7 +20,7 @@ import {
   type CourtBoard,
   type CourtStash,
 } from '../src/lib/courtBoard'
-import type { Player, PlayerRoute, BallTransfer } from '../src/types'
+import type { Player, PlayerRoute, BallTransfer, FreeDrawMark } from '../src/types'
 
 let failures = 0
 function check(name: string, cond: boolean, detail?: unknown) {
@@ -46,10 +46,20 @@ const T = (fromId: string | null, toId: string | null, seq: number): BallTransfe
   seq,
 })
 
+const M = (id: string, seq: number): FreeDrawMark => ({
+  id,
+  points: [
+    { x: 1, y: 2 },
+    { x: 3, y: 4 },
+  ],
+  seq,
+})
+
 const board = (over: Partial<CourtBoard> = {}): CourtBoard => ({
   players: [P('a'), P('b')],
   routes: [],
   ballTransfers: [],
+  marks: [],
   ballOffset: { x: 27, y: 0 },
   ballHolderId: 'a',
   ballLoosePos: null,
@@ -66,10 +76,10 @@ console.log('\n1. first visit to an unvisited court -> defaults, not undefined/e
   const cur = board({ routes: [R('a', 1)], seq: 5 })
   const { board: got } = switchCourt({}, 'half', 'full', cur, fullDefaults)
   eq('players are full court defaults', got.players, fullDefaults.players)
-  eq('routes empty', got.routes, [])
-  eq('transfers empty', got.ballTransfers, [])
+  // The half court's work must not follow us across. What a fresh board
+  // contains is section 9's job; this is only about it being the fresh one.
+  eq('the court we left keeps its routes to itself', got.routes, [])
   eq('seq reset to 0', got.seq, 0)
-  check('board is defined', got !== undefined && got !== null)
 }
 
 console.log('\n2. round trip restores deep-equal, including seq')
@@ -77,8 +87,8 @@ console.log('\n2. round trip restores deep-equal, including seq')
   const original = board({ players: [P('a', 7, 7)], routes: [R('a', 3)], seq: 9 })
   const s1 = switchCourt({}, 'half', 'full', original, fullDefaults)
   const s2 = switchCourt(s1.stash, 'full', 'half', s1.board, halfDefaults)
+  // Deep-equal, so this covers seq, geometry and possession in one assertion.
   eq('restored board equals original', s2.board, original)
-  eq('seq restored', s2.board.seq, 9)
 }
 
 console.log('\n3. three-way alternation, no bleed in either direction')
@@ -156,15 +166,20 @@ console.log('\n7. stash isolation: mutating the returned board must not reach th
   const s1 = switchCourt({}, 'half', 'full', cur, fullDefaults)
   // Come back to half, then mutate what we got.
   const s2 = switchCourt(s1.stash, 'full', 'half', s1.board, halfDefaults)
+  // Mutate what the restore handed back. If `copy()` ever aliases, this reaches
+  // backwards into the stash entry written one call earlier.
   s2.board.routes.push(R('zzz', 99))
   s2.board.ballOffset.x = -1
-  const s3 = switchCourt(s2.stash, 'half', 'full', s2.board, fullDefaults)
-  const s4 = switchCourt(s3.stash, 'full', 'half', s3.board, halfDefaults)
-  check('stashed copy not polluted by push', s4.board.routes.length === 2, s4.board.routes.length)
-  // (2 because the push happened before the re-stash — the check that matters is
-  // that the ORIGINAL stash entry from s1 was not retroactively changed.)
-  eq('original s1 stash entry intact', s1.stash.half!.routes.length, 1)
-  eq('original s1 stash offset intact', s1.stash.half!.ballOffset.x, 27)
+  eq('a push cannot reach the stash entry it was restored from', s1.stash.half!.routes.length, 1)
+  eq('nor can an in-place field write', s1.stash.half!.ballOffset.x, 27)
+
+  // The mirror direction, which is the easier one to get wrong: the board handed
+  // *in* keeps being the live board for the rest of the render, so if the stash
+  // kept the reference instead of a copy, every later edit would rewrite history.
+  cur.routes.push(R('zzz', 99))
+  cur.ballOffset.x = -1
+  eq('the stash entry is a copy of what was handed in', s1.stash.half!.routes.length, 1)
+  eq('...down to its nested objects', s1.stash.half!.ballOffset.x, 27)
 }
 
 console.log('\n8. switching to the court already shown is a no-op')
@@ -194,6 +209,7 @@ console.log('\n9. buildDefaultBoard: the reset a never-visited court starts as')
   eq('team survives the move', got.players.map((p) => p.team), ['offense', 'offense', 'offense'])
   eq('routes cleared', got.routes, [])
   eq('transfers cleared', got.ballTransfers, [])
+  eq('marks cleared', got.marks, [])
   eq('seq reset', got.seq, 0)
   eq('ball offset from the caller, y zeroed', got.ballOffset, { x: 27, y: 0 })
   eq('possession carries over', got.ballHolderId, 'b')
@@ -260,10 +276,49 @@ console.log('\n12. CourtBoard field set — tripwire for a field added but never
   // and forget the matching setter and the board restores incomplete, silently.
   // This fails the moment the shape changes, forcing a look at the apply step.
   eq(
-    'exactly the seven known fields',
+    'exactly the eight known fields',
     Object.keys(buildDefaultBoard([P('a')], [{ x: 0, y: 0 }], 27, 'a')).sort(),
-    ['ballHolderId', 'ballLoosePos', 'ballOffset', 'ballTransfers', 'players', 'routes', 'seq'],
+    [
+      'ballHolderId',
+      'ballLoosePos',
+      'ballOffset',
+      'ballTransfers',
+      'marks',
+      'players',
+      'routes',
+      'seq',
+    ],
   )
+}
+
+console.log('\n13. free-draw marks are per-court, survive a round trip, and outlive a roster edit')
+{
+  // Same contract as the ball and the lines: annotations belong to the court
+  // they were drawn on. The two courts are different coordinate spaces, so a
+  // circle around the half-court elbow would land in open floor on the full.
+  const annotated = board({ marks: [M('m1', 1), M('m2', 2)] })
+  const out = switchCourt({}, 'half', 'full', annotated, fullDefaults)
+  eq('an unvisited court starts unannotated', out.board.marks, [])
+
+  const back = switchCourt(out.stash, 'full', 'half', out.board, halfDefaults)
+  eq('returning restores both marks', back.board.marks.map((m) => m.id), ['m1', 'm2'])
+  eq('...with their geometry intact', back.board.marks[0].points, [
+    { x: 1, y: 2 },
+    { x: 3, y: 4 },
+  ])
+
+  // Copied, not aliased — the same trap `copy()` guards for routes and the ball.
+  back.board.marks.push(M('m3', 3))
+  eq('mutating the restored board cannot reach the stash', back.stash.half!.marks.length, 2)
+
+  // A mark belongs to nobody, so losing a player must not take one with it.
+  // `reconcileStash` filters routes and transfers by player id; marks have none.
+  const reconciled = reconcileStash(
+    { half: board({ players: [P('a'), P('gone')], routes: [R('gone', 1)], marks: [M('m1', 2)] }) },
+    new Set(['a']),
+  )
+  eq('the departed player\'s route goes', reconciled.half!.routes, [])
+  eq('...but the annotation stays', reconciled.half!.marks.map((m) => m.id), ['m1'])
 }
 
 console.log(failures === 0 ? '\nALL PASS' : `\n${failures} FAILURE(S)`)
