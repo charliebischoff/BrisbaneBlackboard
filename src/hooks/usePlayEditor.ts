@@ -255,14 +255,12 @@ export function usePlayEditor() {
   const [ballHolderId, setBallHolderId] = useState<string | null>(() => buildDefaultPlayers('half')[0]?.id ?? null)
   const [drawGesture, setDrawGesture] = useState<DrawGesture | null>(null)
 
-  // --- Free draw (marker mode) -----------------------------------------
+  // --- Free draw --------------------------------------------------------
   /**
    * Freehand annotations, in authoring order. Append-only and sorted by `seq`,
    * which `undoLastAction` relies on — do not sort or splice this array.
    */
   const [marks, setMarks] = useState<FreeDrawMark[]>([])
-  /** While on, bare court draws and the tokens go inert. Session-only, never saved. */
-  const [markerMode, setMarkerMode] = useState(false)
   /**
    * The stroke being dragged out right now. A bare point list rather than a
    * DrawGesture: a mark belongs to no player, so there is no id to carry.
@@ -1074,29 +1072,22 @@ export function usePlayEditor() {
     currentPlayerRadius,
   ])
 
-  // --- Free draw (marker mode) -----------------------------------------
+  // --- Free draw --------------------------------------------------------
 
   /**
-   * Turns the court into a canvas and back.
+   * Starts an annotation stroke — called on press-down on bare court.
    *
-   * While on, the tokens go inert (the players/ball layer stops listening) so a
-   * stroke drawn across a player can't start a route the coach didn't want —
-   * the whole reason this is an explicit mode rather than "any press on bare
-   * court draws". Any gesture in flight is dropped, the same hygiene as a court
-   * switch or a flip: whatever is half-drawn means nothing on the other side.
+   * There is no marker mode: bare court is always live ink, and the tokens keep
+   * listening, so a press that lands on a player or the ball is theirs. The cost
+   * is that a stroke can't *start* on top of a player (ringing one means
+   * starting outside the token and swinging through) — accepted, and in the
+   * README's known gaps.
    */
-  const toggleMarkerMode = useCallback(() => {
-    setMarkerMode((prev) => !prev)
-    setDrawGesture(null)
-    setBallGesture(null)
-    setMarkGesture(null)
-    setSelectedPlayerId(null)
-  }, [])
-
-  /** Starts an annotation stroke — called on press-down on bare court, marker mode only. */
   const startMarkGesture = useCallback(
     (x: number, y: number) => {
-      if (!markerMode) return
+      // Watching a play is not authoring. With the whole court inkable, a stray
+      // finger mid-demo would otherwise stop the animation and reset the clock.
+      if (isPlaying) return
       // Same single-gesture rule as routes and the ball.
       if (drawGesture || ballGesture || markGesture) return
       setErasedSnapshot(null)
@@ -1106,7 +1097,7 @@ export function usePlayEditor() {
       setPlaybackT(0)
       setMarkGesture([{ x, y }])
     },
-    [markerMode, drawGesture, ballGesture, markGesture],
+    [isPlaying, drawGesture, ballGesture, markGesture],
   )
 
   /** Appends a point to the in-progress stroke, at the same spacing routes use. */
@@ -1612,8 +1603,6 @@ export function usePlayEditor() {
       setSelectedPlayerId(null)
       setDrawGesture(null)
       setMarkGesture(null)
-      // Opening a play should put the board in front of the coach, not a pen.
-      setMarkerMode(false)
       setPlaybackT(0)
       setErasedSnapshot(null)
       // A just-loaded play is by definition unmodified. The defaults applied
@@ -1657,7 +1646,6 @@ export function usePlayEditor() {
     setDrawGesture(null)
     setMarks([])
     setMarkGesture(null)
-    setMarkerMode(false)
     setPlaybackT(0)
     setErasedSnapshot(null)
     // Never saved — but an empty court isn't dirty either (see isDirty).
@@ -1707,9 +1695,7 @@ export function usePlayEditor() {
     ballHint,
     drawGesture,
     marks,
-    markerMode,
     markGesture,
-    toggleMarkerMode,
     startMarkGesture,
     extendMarkGesture,
     endMarkGesture,

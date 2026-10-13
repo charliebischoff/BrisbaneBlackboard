@@ -83,7 +83,7 @@ export interface BallTransfer {
 }
 
 /**
- * One freehand annotation stroke, drawn in marker mode on bare court. Belongs
+ * One freehand annotation stroke, drawn on bare court. Belongs
  * to nobody: it isn't a route, it doesn't move anything, and it's exempt from
  * the visible/stored line caps — a defender's position is context the coach is
  * talking over, not an action that should age off the board.

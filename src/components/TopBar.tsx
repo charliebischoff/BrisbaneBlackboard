@@ -10,9 +10,6 @@ interface Props {
   onUndoLastAction: () => void
   canUndoLastAction: boolean
   onFlip: (axis: FlipAxis) => void
-  /** The only sticky control in the bar — see the marker cap below. */
-  markerMode: boolean
-  onToggleMarkerMode: () => void
   /** Owned by App: collapsing also changes the root layout axis and the court's padding. */
   onToggleCollapse: () => void
 }
@@ -36,7 +33,7 @@ const CAP =
  * horizontal room and a wider target is easier to hit than a taller one would
  * be, since height there is bought straight out of the court.
  */
-/** Geometry only. Split out so the marker cap can take the same shape with a different skin. */
+/** Geometry only. Split out so a cap can take the same shape with a different skin. */
 const ICON_CAP_SHAPE = `${CAP} w-[24px] h-[24px] lg:w-[64px] lg:h-[32px]`
 /** The resting skin every momentary cap wears: white top, grey side face. */
 const ICON_CAP_SKIN = 'shadow-[0_2px_0_#9aa0ab] lg:shadow-[0_3px_0_#9aa0ab] bg-white'
@@ -57,46 +54,6 @@ const TAB_CAP =
   `${CAP} w-[24px] h-[24px] text-[0.6rem] lg:w-[92px] lg:h-auto lg:min-h-[32px] ` +
   `lg:px-3 lg:text-[1rem] leading-none uppercase tracking-wide`
 const TAB_ACTIVE = 'bg-accent shadow-[0_2px_0_#a8763a] lg:shadow-[0_3px_0_#a8763a]'
-
-/**
- * The marker cap while free draw is on.
- *
- * This is the only *sticky* control in the bar — everything else fires and pops
- * back. A coach who doesn't notice it is still on will tap a player, get
- * nothing, and read the app as broken, so "on" has to be unmissable from arm's
- * length and at an angle.
- *
- * Two independent channels, both borrowed rather than invented. It takes the
- * selected court tab's orange, which is already this app's word for "this one
- * is on"; and it stays *seated* — the side face removed and the cap dropped onto
- * it by exactly that depth, which is the press affordance held rather than
- * released. The geometry carries the state even if the colour can't be seen.
- *
- * The drop has to track the 2px/3px shadow split above, same as CAP's.
- */
-const MARKER_ON = 'bg-accent shadow-none translate-y-[2px] lg:translate-y-[3px]'
-
-/**
- * An abstract pencil: the barrel, and one short line for the ferrule. Nothing
- * else — no wood grain, no eraser, no shading. At 16px on the small-screen rail
- * any more detail collapses into a smudge.
- */
-function MarkerIcon() {
-  return (
-    <svg
-      viewBox="0 0 24 24"
-      className="w-4 h-4"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth={1.8}
-      strokeLinecap="round"
-      strokeLinejoin="round"
-    >
-      <path d="M5 19.2l3.4-.9L19.4 7.3a1.7 1.7 0 0 0-2.4-2.4L6 15.8z" />
-      <path d="M15.2 6.7l2.4 2.4" />
-    </svg>
-  )
-}
 const TAB_IDLE = 'bg-white shadow-[0_2px_0_#9aa0ab] lg:shadow-[0_3px_0_#9aa0ab]'
 
 const TABS: { value: CourtType; label: string; short: string }[] = [
@@ -254,8 +211,6 @@ export default function TopBar({
   onUndoLastAction,
   canUndoLastAction,
   onFlip,
-  markerMode,
-  onToggleMarkerMode,
   onToggleCollapse,
 }: Props) {
   return (
@@ -315,14 +270,6 @@ export default function TopBar({
         </button>
         <button onClick={onClearRoutes} aria-label="Erase all lines" className={`${ICON_CAP} text-base`}>
           R
-        </button>
-        <button
-          onClick={onToggleMarkerMode}
-          aria-pressed={markerMode}
-          aria-label="Free draw"
-          className={`${ICON_CAP_SHAPE} ${markerMode ? MARKER_ON : ICON_CAP_SKIN}`}
-        >
-          <MarkerIcon />
         </button>
         <button onClick={() => onFlip('horizontal')} aria-label="Flip left to right" className={ICON_CAP}>
           <FlipIcon axis="horizontal" />

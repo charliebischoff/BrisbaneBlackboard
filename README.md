@@ -141,7 +141,7 @@ calls a function it exposes.
 - **Possession isn't time-aware during playback** — the gold ring reflects
   who holds the ball *right now* in the editor, not at each moment as the
   play animates. A proper fix ties it to the playback clock.
-- **Free-draw marks don't animate** — annotations drawn in marker mode are
+- **Free-draw marks don't animate** — annotations drawn on the court are
   static: visible from the first frame to the last, and they take no part in
   the playback timeline. The agreed next step is to make them ordinary
   single-track events (sorted by the `seq` they already carry, weighted by
@@ -154,7 +154,14 @@ calls a function it exposes.
 - **A mark can only be removed by undo or by "R"** — there's no tap-a-stroke
   to delete it, because a hit-testable stroke drawn over a player would
   swallow that player's presses. A stray early mark therefore costs the whole
-  board. Stored marks are capped at 80, oldest dropped.
+  board. Stored marks are capped at 80, oldest dropped. This bites more often
+  now that free draw is modeless: bare court is always live ink, so every
+  mis-aimed drag leaves something behind.
+- **A stroke can't start on top of a player or the ball** — there's no marker
+  mode any more, so the tokens always listen and a press on one is a route or
+  a throw, not ink. Ringing a player means starting outside the token and
+  swinging through; travelling *over* a token mid-stroke is fine, only the
+  press target matters. Giving this back would mean reintroducing a mode.
 - **Defense** — `Player.team` already supports `'defense'`, there's just no
   UI yet to add a defensive player to the court.
 - **Player photos** for players added after the initial roster — no upload

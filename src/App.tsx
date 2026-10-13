@@ -75,8 +75,6 @@ export default function App() {
           onUndoLastAction={editor.undoLastAction}
           canUndoLastAction={editor.canUndoLastAction}
           onFlip={editor.flipBoard}
-          markerMode={editor.markerMode}
-          onToggleMarkerMode={editor.toggleMarkerMode}
         />
       )}
 

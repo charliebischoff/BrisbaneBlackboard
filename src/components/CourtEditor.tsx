@@ -145,17 +145,19 @@ export default function CourtEditor({ editor, onOpenRoster }: Props) {
   }
 
   /**
-   * Press on bare court. The only press handler on the Stage itself — tokens
-   * capture their own, and they don't stop propagation, so this has to check
-   * that the press really landed on nothing. `Court` draws into a
-   * `listening={false}` layer, so bare court reports the Stage as the target;
-   * that's the same fact `handleStageClick` below relies on.
+   * Press on bare court — which is to say, an annotation stroke. There is no
+   * marker mode: anything that isn't a player or the ball is ink.
+   *
+   * The only press handler on the Stage itself — tokens capture their own, and
+   * they don't stop propagation, so this has to check that the press really
+   * landed on nothing. `Court` and the lines layer both draw with
+   * `listening={false}`, so bare court *and* a drawn line report the Stage as
+   * the target; that's the same fact `handleStageClick` below relies on.
    *
    * A second finger is ignored rather than allowed to restart the stroke: on an
    * iPad the usual cause is a palm, not a deliberate gesture.
    */
   function handleStagePointerDown(e: Konva.KonvaEventObject<MouseEvent | TouchEvent>) {
-    if (!editor.markerMode) return
     const stage = e.target.getStage()
     if (!stage || e.target !== stage) return
     const evt = e.evt as TouchEvent
@@ -271,13 +273,13 @@ export default function CourtEditor({ editor, onOpenRoster }: Props) {
         <Court courtType={editor.courtType} />
 
         {/* Lines are ordinary Konva nodes, and arrowheads are filled polygons, so
-            they hit-test. In marker mode that would make every drawn line a dead
-            zone: the press would target the line, the bare-court test below
-            would fail, and the stroke would never start — on exactly the busy
-            board an annotation is most needed. Gated on markerMode rather than
-            switched off outright, so tapping a line still does nothing (instead
-            of newly clearing the selection) the rest of the time. */}
-        <Layer listening={!editor.markerMode}>
+            left listening they would hit-test — making every drawn line a dead
+            zone for ink: the press would target the line, the bare-court test in
+            handleStagePointerDown would fail, and the stroke would never start,
+            on exactly the busy board an annotation is most needed. Nothing is
+            lost by switching the layer off: a press on a line has never done
+            anything but fall through. */}
+        <Layer listening={false}>
           {/* Under the routes: an annotation is the backdrop a play is drawn
               against, and a coach's ring around the elbow must never obscure
               the cut that runs through it. */}
@@ -333,11 +335,12 @@ export default function CourtEditor({ editor, onOpenRoster }: Props) {
             })()}
         </Layer>
 
-        {/* Marker mode makes the court a canvas: the tokens stop listening, so a
-            stroke drawn across a player can't start a route the coach never
-            asked for, and every press lands on the Stage where the free-draw
-            handler can see it. One tap on the marker cap gives them back. */}
-        <Layer listening={!editor.markerMode}>
+        {/* This layer is the whole of "anywhere but the players and the ball":
+            it keeps listening, so a press on a token is a route and a press on
+            the ball is a throw, and everything that misses them falls through to
+            the Stage as ink. The consequence is that a stroke can't begin on top
+            of a player — see the README's known gaps. */}
+        <Layer>
           {/* Drop targets, only while the ball is actually in hand */}
           {editor.ballGesture &&
             editor.players
