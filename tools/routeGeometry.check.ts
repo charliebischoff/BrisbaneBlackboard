@@ -170,10 +170,10 @@ console.log('\n8. lineSeqFloor keeps exactly `limit` most recent lines, inclusiv
     segments: seqs.map((s) => seg([P(0, 0)], s)),
   })
 
-  eq('fewer lines than the limit -> keep all', lineSeqFloor([route('a', [1, 2])], [], 3), -Infinity)
-  eq('exactly the limit -> keep all', lineSeqFloor([route('a', [1, 2, 3])], [], 3), -Infinity)
+  eq('fewer lines than the limit -> keep all', lineSeqFloor([route('a', [1, 2])], [], [], 3), -Infinity)
+  eq('exactly the limit -> keep all', lineSeqFloor([route('a', [1, 2, 3])], [], [], 3), -Infinity)
 
-  const floor = lineSeqFloor([route('a', [1, 2, 3, 4])], [], 3)
+  const floor = lineSeqFloor([route('a', [1, 2, 3, 4])], [], [], 3)
   eq('floor is the 3rd highest seq', floor, 2)
   const kept = [1, 2, 3, 4].filter((s) => s >= floor)
   eq('the floor is inclusive: 3 lines survive', kept, [2, 3, 4])
@@ -181,14 +181,27 @@ console.log('\n8. lineSeqFloor keeps exactly `limit` most recent lines, inclusiv
   // Routes and transfers rank together off the one counter.
   eq(
     'transfers compete with route segments',
-    lineSeqFloor([route('a', [1, 5])], [{ seq: 9 }, { seq: 7 }], 2),
+    lineSeqFloor([route('a', [1, 5])], [{ seq: 9 }, { seq: 7 }], [], 2),
     7,
   )
-  eq('segments across players rank together', lineSeqFloor([route('a', [1, 4]), route('b', [2, 3])], [], 2), 3)
+  eq('segments across players rank together', lineSeqFloor([route('a', [1, 4]), route('b', [2, 3])], [], [], 2), 3)
+
+  // Marks share the one counter, so annotation competes with the play for the
+  // visible budget — the whole point of the shared-budget rule.
+  eq(
+    'free-draw marks rank with segments and transfers',
+    lineSeqFloor([route('a', [1, 2])], [{ seq: 3 }], [{ seq: 8 }, { seq: 9 }], 3),
+    3,
+  )
+  eq(
+    'enough marks push every line off the board',
+    lineSeqFloor([route('a', [1, 2])], [], [{ seq: 7 }, { seq: 8 }, { seq: 9 }], 3),
+    7,
+  )
 
   // limit 0 indexes seqs[-1]. Unreachable via settings (MIN_VISIBLE_LINES is 1)
   // but the export isn't guarded — pinned so a caller change surfaces it.
-  check('limit 0 returns undefined, not a number', lineSeqFloor([route('a', [1, 2])], [], 0) === undefined)
+  check('limit 0 returns undefined, not a number', lineSeqFloor([route('a', [1, 2])], [], [], 0) === undefined)
 }
 
 console.log('\n9. flipPoint / flipVector')

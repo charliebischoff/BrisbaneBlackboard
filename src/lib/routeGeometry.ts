@@ -158,28 +158,37 @@ export function squigglePoints(points: Point[], amplitude = 4, wavelength = 16):
 }
 
 /**
- * Hard cap on how many lines are *kept in state*. Well above the largest
- * visible-lines setting (see `lib/settingsStore`) so nothing a coach might want back is thrown away
- * eagerly, but low enough that a long session can't grow the play forever.
+ * Hard cap on how many route segments and ball transfers are *kept in state*.
+ * Well above the largest visible-lines setting (see `lib/settingsStore`) so
+ * nothing a coach might want back is thrown away eagerly, but low enough that a
+ * long session can't grow the play forever.
+ *
+ * Free-draw marks rank alongside those lines in the *visible* budget (see
+ * `lineSeqFloor`) but are not pruned against this cap — they have their own,
+ * higher `MAX_MARKS` ceiling in `usePlayEditor`.
  */
 export const MAX_STORED_LINES = 30
 
 /**
  * The lowest `seq` still worth keeping, so only the `limit` most recent lines
- * survive. Player route segments and ball transfers are stamped from the same
- * counter in `usePlayEditor`, so they rank together — "most recent" is global
- * across the whole play, not per player.
+ * survive. Player route segments, ball transfers and free-draw marks are all
+ * stamped from the same counter in `usePlayEditor`, so they rank together —
+ * "most recent" is global across the whole play, not per player and not per
+ * kind. A burst of annotation really can push the drawn play off the board;
+ * that's the point of one shared budget.
  *
  * Returns -Infinity when there are fewer than `limit` lines, i.e. keep them all.
  */
 export function lineSeqFloor(
   routes: PlayerRoute[],
   ballTransfers: { seq: number }[],
+  marks: { seq: number }[],
   limit: number,
 ): number {
   const seqs: number[] = []
   for (const route of routes) for (const segment of route.segments) seqs.push(segment.seq)
   for (const transfer of ballTransfers) seqs.push(transfer.seq)
+  for (const mark of marks) seqs.push(mark.seq)
   if (seqs.length <= limit) return -Infinity
   seqs.sort((a, b) => b - a)
   return seqs[limit - 1]

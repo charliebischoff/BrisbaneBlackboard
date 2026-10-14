@@ -84,9 +84,12 @@ export interface BallTransfer {
 
 /**
  * One freehand annotation stroke, drawn on bare court. Belongs
- * to nobody: it isn't a route, it doesn't move anything, and it's exempt from
- * the visible/stored line caps — a defender's position is context the coach is
- * talking over, not an action that should age off the board.
+ * to nobody: it isn't a route and it doesn't move anything.
+ *
+ * It ages off the board with everything else — marks share the visible-lines
+ * budget with route segments and ball transfers, ranked on one counter. They are
+ * still exempt from the `MAX_STORED_LINES` *storage* prune, keeping their own
+ * higher `MAX_MARKS` ceiling.
  *
  * `id` exists because routes key off `playerId` and a mark has no player.
  * Points are stored rounded to whole court units; freehand floods points and

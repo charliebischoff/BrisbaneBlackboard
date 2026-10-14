@@ -31,20 +31,23 @@ export default function App() {
 
   // Missed-pass feedback used to live in the sidebar toolbar. Move & ball is
   // now the only mode, so a dropped ball must still say something.
-  const { ballHint, dismissBallHint, canUndoClear, dismissUndo } = editor
+  const { ballHint, dismissBallHint, pendingErase, dismissErase } = editor
   useEffect(() => {
     if (!ballHint) return
     const timer = window.setTimeout(dismissBallHint, 2500)
     return () => window.clearTimeout(timer)
   }, [ballHint, dismissBallHint])
 
-  // The erase button has no confirm step, so the way back is offered right
+  // The erase buttons have no confirm step, so the way back is offered right
   // after — long enough to notice a mistake, short enough to stay out of the way.
+  // Keyed on the kind as well, so pressing the other eraser restarts the clock
+  // rather than leaving the new pill to inherit what was left of the old one's.
+  const pendingEraseKind = pendingErase?.kind
   useEffect(() => {
-    if (!canUndoClear) return
-    const timer = window.setTimeout(dismissUndo, 8000)
+    if (!pendingEraseKind) return
+    const timer = window.setTimeout(dismissErase, 8000)
     return () => window.clearTimeout(timer)
-  }, [canUndoClear, dismissUndo])
+  }, [pendingEraseKind, dismissErase])
 
   return (
     // Below `lg` the chrome is a side rail, so the root axis is horizontal: a
@@ -72,6 +75,7 @@ export default function App() {
           onOpenRoster={openRoster}
           onOpenSettings={() => setIsSettingsOpen(true)}
           onClearRoutes={editor.clearAllRoutes}
+          onClearMarks={editor.clearAllMarks}
           onUndoLastAction={editor.undoLastAction}
           canUndoLastAction={editor.canUndoLastAction}
           onFlip={editor.flipBoard}
@@ -121,11 +125,18 @@ export default function App() {
           </div>
         )}
 
-        {canUndoClear && !ballHint && (
+        {/* One pill for both erase buttons, because the editor keeps one erase
+            to undo. A second erase replaces what's here instead of queueing
+            behind it and surfacing later for something long since done. */}
+        {pendingErase && !ballHint && (
           <div className="absolute top-2 left-1/2 -translate-x-1/2 flex items-center gap-3 pl-4 pr-2 py-2 rounded-full bg-black/80 text-court-line text-sm font-body">
-            <span>Board erased</span>
+            <span>
+              {pendingErase.kind === 'routes' ? 'Token arrows erased' : 'Free-draw erased'}
+            </span>
             <button
-              onClick={editor.undoClearAll}
+              onClick={
+                pendingErase.kind === 'routes' ? editor.undoClearAll : editor.undoClearMarks
+              }
               className="px-3 py-1.5 rounded-full bg-accent text-ink-900 font-medium"
             >
               Undo
@@ -133,11 +144,11 @@ export default function App() {
           </div>
         )}
 
-        {/* Lowest priority of the three: this one has no timeout, so it must
-            not be allowed to sit on top of the erase-undo window, which does.
+        {/* Lowest priority: this one has no timeout, so it must
+            not be allowed to sit on top of an erase-undo window, which does.
             Never auto-applies — the play on the board isn't saved anywhere, so
             reloading has to be a deliberate tap. */}
-        {updateReady && !isUpdateDismissed && !ballHint && !canUndoClear && (
+        {updateReady && !isUpdateDismissed && !ballHint && !pendingErase && (
           <div className="absolute top-2 left-1/2 -translate-x-1/2 flex items-center gap-2 pl-4 pr-2 py-2 rounded-full bg-black/80 text-court-line text-sm font-body">
             <span>Update ready</span>
             {/* Unfilled, so "Reload" stays the one obvious action of the two. */}

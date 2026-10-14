@@ -241,6 +241,25 @@ interface DrawGesture {
   points: Point[]
 }
 
+/**
+ * One level of undo for an erase, tagged with the button that caused it.
+ * 'routes' is the "R" cap (token arrows and the ball's path, which is why it
+ * carries the ball state too); 'marks' is the eraser cap beside it. Players ride
+ * along with 'routes' because wiping a route moves nobody — see `clearAllRoutes`.
+ */
+type PendingErase =
+  | {
+      kind: 'routes'
+      players: Player[]
+      routes: PlayerRoute[]
+      ballTransfers: BallTransfer[]
+      ballOffset: Point
+      ballHolderId: string | null
+      ballLoosePos: Point | null
+      seq: number
+    }
+  | { kind: 'marks'; marks: FreeDrawMark[]; seq: number }
+
 export function usePlayEditor() {
   const [playId, setPlayId] = useState(() => uuid())
   const [playName, setPlayName] = useState('Untitled Play')
@@ -281,20 +300,22 @@ export function usePlayEditor() {
   const [ballHint, setBallHint] = useState<string | null>(null)
 
   /**
-   * What the last erase took, so it can be put back. The erase button is the
-   * biggest target in the bar and there is no confirm step, so one stray palm
-   * courtside would otherwise cost the whole board. Null = nothing to restore.
+   * What the last erase took and which button took it, so it can be put back.
+   * Neither erase button has a confirm step, so one stray palm courtside would
+   * otherwise cost the whole board. Null = nothing to restore.
+   *
+   * One slot for both buttons, not one each: the undo offer lives in a single
+   * toast position, so a second erase replaces the first rather than queueing
+   * behind it and surfacing seconds later for something long since done.
    */
-  const [erasedSnapshot, setErasedSnapshot] = useState<{
-    players: Player[]
-    routes: PlayerRoute[]
-    ballTransfers: BallTransfer[]
-    marks: FreeDrawMark[]
-    ballOffset: Point
-    ballHolderId: string | null
-    ballLoosePos: Point | null
-    seq: number
-  } | null>(null)
+  const [pendingErase, setPendingErase] = useState<PendingErase | null>(null)
+
+  /** A new edit supersedes an erase of the same kind — restoring over it would bin this work. */
+  const supersedeErase = useCallback(
+    (kind: PendingErase['kind']) =>
+      setPendingErase((prev) => (prev?.kind === kind ? null : prev)),
+    [],
+  )
 
   // The play as it was last persisted or loaded, and its signature.
   // null = nothing to revert to; this play has never been written.
@@ -341,7 +362,10 @@ export function usePlayEditor() {
    * the survivors drawn exactly where they were.
    */
   useEffect(() => {
-    const floor = lineSeqFloor(routes, ballTransfers, MAX_STORED_LINES)
+    // Marks deliberately sit this one out (`[]`, not `marks`): they rank with
+    // lines in the *visible* budget but keep their own, higher `MAX_MARKS`
+    // storage ceiling. Counting them here would prune routes early.
+    const floor = lineSeqFloor(routes, ballTransfers, [], MAX_STORED_LINES)
     if (floor === -Infinity) return
 
     // Losing a route entirely would snap that player back to their authored
@@ -390,9 +414,9 @@ export function usePlayEditor() {
    * or laid out at that court's default spots if it hasn't.
    *
    * Only geometry is stashed. Transient UI — an in-flight gesture, the
-   * selection, the playback clock, the erase undo — is cleared on every switch
-   * regardless. `erasedSnapshot` especially: carrying it across would let the
-   * undo button restore the other court's lines.
+   * selection, the playback clock, the erase undos — is cleared on every switch
+   * regardless. `pendingErase` especially: carrying it across would let the undo
+   * button restore the other court's work.
    */
   const setCourtType = useCallback((type: CourtType) => {
     stopPlaybackRef.current()
@@ -445,7 +469,7 @@ export function usePlayEditor() {
     setDrawGesture(null)
     setMarkGesture(null)
     setPlaybackT(0)
-    setErasedSnapshot(null)
+    setPendingErase(null)
   }, [
     settings,
     courtType,
@@ -500,19 +524,18 @@ export function usePlayEditor() {
       setBallLoosePos((prev) => (prev ? pt(prev) : prev))
       // Keep the erase snapshot in the orientation the board is in now, or
       // undoing an erase after a flip would paste the old side back.
-      setErasedSnapshot((prev) =>
-        prev
-          ? {
-              ...prev,
-              players: flipPlayers(prev.players),
-              routes: flipRoutes(prev.routes),
-              ballTransfers: flipTransfers(prev.ballTransfers),
-              marks: flipMarks(prev.marks),
-              ballOffset: flipVector(prev.ballOffset, axis),
-              ballLoosePos: prev.ballLoosePos ? pt(prev.ballLoosePos) : null,
-            }
-          : prev,
-      )
+      setPendingErase((prev) => {
+        if (!prev) return prev
+        if (prev.kind === 'marks') return { ...prev, marks: flipMarks(prev.marks) }
+        return {
+          ...prev,
+          players: flipPlayers(prev.players),
+          routes: flipRoutes(prev.routes),
+          ballTransfers: flipTransfers(prev.ballTransfers),
+          ballOffset: flipVector(prev.ballOffset, axis),
+          ballLoosePos: prev.ballLoosePos ? pt(prev.ballLoosePos) : null,
+        }
+      })
       // A stroke half-drawn against the old orientation has no mirrored meaning.
       setDrawGesture(null)
       setBallGesture(null)
@@ -777,14 +800,14 @@ export function usePlayEditor() {
       // the live one, silently binning the first player's half-drawn route.
       if (drawGesture || ballGesture || markGesture) return
       // A new edit supersedes the erase — restoring after it would bin this work.
-      setErasedSnapshot(null)
+      supersedeErase('routes')
       // Editing and the playback clock don't mix — drop back to the resting board.
       stopPlaybackRef.current()
       setPlaybackT(0)
       setBallHint(null)
       setBallGesture([{ x, y }])
     },
-    [mode, drawGesture, ballGesture, markGesture],
+    [mode, drawGesture, ballGesture, markGesture, supersedeErase],
   )
 
   const extendBallDrag = useCallback((x: number, y: number) => {
@@ -959,7 +982,7 @@ export function usePlayEditor() {
       // in-progress stroke.
       if (drawGesture || ballGesture || markGesture) return
       // A new edit supersedes the erase — restoring after it would bin this work.
-      setErasedSnapshot(null)
+      supersedeErase('routes')
       const player = players.find((p) => p.id === playerId)
       if (!player) return
       // Same as the ball: a press means "edit", so the clock goes back to rest
@@ -970,7 +993,7 @@ export function usePlayEditor() {
       const start = routeEndPoint(route, { x: player.x, y: player.y })
       setDrawGesture({ playerId, points: [start] })
     },
-    [mode, players, routes, drawGesture, ballGesture, markGesture],
+    [mode, players, routes, drawGesture, ballGesture, markGesture, supersedeErase],
   )
 
   /** Appends a point to the in-progress gesture — called on pointer move while dragging. */
@@ -1090,14 +1113,17 @@ export function usePlayEditor() {
       if (isPlaying) return
       // Same single-gesture rule as routes and the ball.
       if (drawGesture || ballGesture || markGesture) return
-      setErasedSnapshot(null)
+      // Only the free-draw undo: a new scribble supersedes the offer to restore
+      // erased scribbles, but it no longer has anything to do with the token
+      // arrows, so the "R" undo is left standing.
+      supersedeErase('marks')
       // A press means "edit", so the clock goes back to rest rather than leaving
       // the board rendered mid-playback.
       stopPlaybackRef.current()
       setPlaybackT(0)
       setMarkGesture([{ x, y }])
     },
-    [isPlaying, drawGesture, ballGesture, markGesture],
+    [isPlaying, drawGesture, ballGesture, markGesture, supersedeErase],
   )
 
   /** Appends a point to the in-progress stroke, at the same spacing routes use. */
@@ -1147,13 +1173,18 @@ export function usePlayEditor() {
   }, [])
 
   const clearAllRoutes = useCallback(() => {
+    // Nothing to erase, nothing to say. Matters now that there is one undo slot:
+    // without this, R on an arrow-free board would take over the pill and bin a
+    // live free-draw undo for a press that changed nothing. Same guard the
+    // eraser has.
+    if (routes.length === 0 && ballTransfers.length === 0) return
     // The erase button is a single large tap with no confirm, so bank enough to
     // put the board back — one level, until the next erase.
-    setErasedSnapshot({
+    setPendingErase({
+      kind: 'routes',
       players,
       routes,
       ballTransfers,
-      marks,
       ballOffset,
       ballHolderId,
       ballLoosePos,
@@ -1173,29 +1204,60 @@ export function usePlayEditor() {
     )
     setRoutes([])
     setBallTransfers([])
-    // Annotations go with the lines. "R" reads as "wipe the board", and leaving
-    // them is not an option anyway: the counter resets below, so marks that
-    // survived would keep seq values above everything drawn afterwards and undo
-    // would walk backwards through them before touching the new work.
-    setMarks([])
-    seqRef.current = 0
+    // Annotations stay: free-draw has its own eraser, and "R" is now the
+    // token-arrow button. The counter therefore can't go back to 0 — surviving
+    // marks hold seq values, and restarting below them would stamp the next
+    // arrow underneath an old scribble, hiding it from the shared visible-lines
+    // budget and sending `undoLastAction` backwards through the annotation
+    // first. Rebase to just above whatever is left instead.
+    seqRef.current = normalizeSequence([], [], marks).nextSeq
   }, [routes, players, ballTransfers, marks, ballOffset, ballHolderId, ballLoosePos])
 
-  /** Puts back exactly what the last erase took. One level only. */
+  /** Puts back exactly what the last token-arrow erase took. One level only. */
   const undoClearAll = useCallback(() => {
-    if (!erasedSnapshot) return
-    setPlayers(erasedSnapshot.players)
-    setRoutes(erasedSnapshot.routes)
-    setBallTransfers(erasedSnapshot.ballTransfers)
-    setMarks(erasedSnapshot.marks)
-    setBallOffset(erasedSnapshot.ballOffset)
-    setBallHolderId(erasedSnapshot.ballHolderId)
-    setBallLoosePos(erasedSnapshot.ballLoosePos)
-    seqRef.current = erasedSnapshot.seq
-    setErasedSnapshot(null)
-  }, [erasedSnapshot])
+    if (pendingErase?.kind !== 'routes') return
+    setPlayers(pendingErase.players)
+    setRoutes(pendingErase.routes)
+    setBallTransfers(pendingErase.ballTransfers)
+    setBallOffset(pendingErase.ballOffset)
+    setBallHolderId(pendingErase.ballHolderId)
+    setBallLoosePos(pendingErase.ballLoosePos)
+    // Not simply the banked value: marks drawn *since* the erase were stamped
+    // from the rebased counter, so winding it back would let the next stroke
+    // collide with one of them. Take whichever is higher.
+    seqRef.current = Math.max(
+      pendingErase.seq,
+      normalizeSequence([], [], marks).nextSeq,
+    )
+    setPendingErase(null)
+  }, [pendingErase, marks])
 
-  const dismissUndo = useCallback(() => setErasedSnapshot(null), [])
+  /**
+   * Wipes free-draw annotation and nothing else. Separate button — erasing
+   * scribbles must not disturb the play drawn over them. It does take over the
+   * undo slot, so the pill on screen is always about the last thing pressed.
+   */
+  const clearAllMarks = useCallback(() => {
+    if (marks.length === 0) return
+    setPendingErase({ kind: 'marks', marks, seq: seqRef.current })
+    setMarks([])
+    // Same rebase reasoning as `clearAllRoutes`, mirrored: the lines are what
+    // survives here, so the counter settles just above them.
+    seqRef.current = normalizeSequence(routes, ballTransfers, []).nextSeq
+  }, [marks, routes, ballTransfers])
+
+  /** Puts back exactly what the last free-draw erase took. One level only. */
+  const undoClearMarks = useCallback(() => {
+    if (pendingErase?.kind !== 'marks') return
+    setMarks(pendingErase.marks)
+    seqRef.current = Math.max(
+      pendingErase.seq,
+      normalizeSequence(routes, ballTransfers, []).nextSeq,
+    )
+    setPendingErase(null)
+  }, [pendingErase, routes, ballTransfers])
+
+  const dismissErase = useCallback(() => setPendingErase(null), [])
 
   // --- Playback -----------------------------------------------------
 
@@ -1604,7 +1666,7 @@ export function usePlayEditor() {
       setDrawGesture(null)
       setMarkGesture(null)
       setPlaybackT(0)
-      setErasedSnapshot(null)
+      setPendingErase(null)
       // A just-loaded play is by definition unmodified. The defaults applied
       // above have to be mirrored here or it would read as dirty immediately.
       setSavedPlay(play)
@@ -1647,7 +1709,7 @@ export function usePlayEditor() {
     setMarks([])
     setMarkGesture(null)
     setPlaybackT(0)
-    setErasedSnapshot(null)
+    setPendingErase(null)
     // Never saved — but an empty court isn't dirty either (see isDirty).
     setSavedPlay(null)
     setSavedSignature(null)
@@ -1727,9 +1789,16 @@ export function usePlayEditor() {
     dismissBallHint,
     clearRoute,
     clearAllRoutes,
-    canUndoClear: erasedSnapshot !== null,
+    clearAllMarks,
+    /**
+     * The one erase currently offered for undo, or null. Only the kind leaves
+     * the hook — the toast needs to know which button filled the slot, never
+     * what the snapshot holds.
+     */
+    pendingErase: pendingErase && { kind: pendingErase.kind },
     undoClearAll,
-    dismissUndo,
+    undoClearMarks,
+    dismissErase,
     play,
     pause,
     resetPlayback,

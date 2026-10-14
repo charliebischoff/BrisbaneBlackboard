@@ -204,8 +204,14 @@ export default function CourtEditor({ editor, onOpenRoster }: Props) {
    * pruned separately at a much higher cap in usePlayEditor.
    */
   const visibleFloor = useMemo(
-    () => lineSeqFloor(editor.routes, editor.ballTransfers, editor.settings.maxVisibleLines),
-    [editor.routes, editor.ballTransfers, editor.settings.maxVisibleLines],
+    () =>
+      lineSeqFloor(
+        editor.routes,
+        editor.ballTransfers,
+        editor.marks,
+        editor.settings.maxVisibleLines,
+      ),
+    [editor.routes, editor.ballTransfers, editor.marks, editor.settings.maxVisibleLines],
   )
 
   /**
@@ -283,7 +289,13 @@ export default function CourtEditor({ editor, onOpenRoster }: Props) {
           {/* Under the routes: an annotation is the backdrop a play is drawn
               against, and a coach's ring around the elbow must never obscure
               the cut that runs through it. */}
-          <FreeDrawMarks marks={editor.marks} reveal={editor.markReveal} color={MARK_COLOR} />
+          {/* Filtered on the same floor as the routes: annotation shares the
+              visible-lines budget with everything else drawn. */}
+          <FreeDrawMarks
+            marks={editor.marks.filter((m) => m.seq >= visibleFloor)}
+            reveal={editor.markReveal}
+            color={MARK_COLOR}
+          />
 
           {editor.markGesture && editor.markGesture.length > 1 && (
             <FreeDrawMarks

@@ -7,6 +7,7 @@ interface Props {
   onOpenRoster: () => void
   onOpenSettings: () => void
   onClearRoutes: () => void
+  onClearMarks: () => void
   onUndoLastAction: () => void
   canUndoLastAction: boolean
   onFlip: (axis: FlipAxis) => void
@@ -100,6 +101,16 @@ function UndoIcon() {
     <svg viewBox="0 0 24 24" className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round">
       <path d="M20 5v6a4 4 0 0 1-4 4H5" />
       <path d="M9 11 5 15l4 4" />
+    </svg>
+  )
+}
+
+/** A tilted eraser block sweeping along a baseline — "rub out the scribbles". */
+function EraserIcon() {
+  return (
+    <svg viewBox="0 0 24 24" className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round">
+      <path d="M8.5 17.5 4.9 13.9a1.6 1.6 0 0 1 0-2.3l7-7a1.6 1.6 0 0 1 2.3 0l4.2 4.2a1.6 1.6 0 0 1 0 2.3l-5.3 5.3H8.5Z" />
+      <path d="M4 20.5h16" />
     </svg>
   )
 }
@@ -208,6 +219,7 @@ export default function TopBar({
   onOpenRoster,
   onOpenSettings,
   onClearRoutes,
+  onClearMarks,
   onUndoLastAction,
   canUndoLastAction,
   onFlip,
@@ -268,8 +280,13 @@ export default function TopBar({
         >
           <UndoIcon />
         </button>
-        <button onClick={onClearRoutes} aria-label="Erase all lines" className={`${ICON_CAP} text-base`}>
+        <button onClick={onClearRoutes} aria-label="Erase token arrows" className={`${ICON_CAP} text-base`}>
           R
+        </button>
+        {/* Sits beside R because the two are the pair: R takes the play, this
+            takes the annotation drawn over it. */}
+        <button onClick={onClearMarks} aria-label="Erase free-draw lines" className={ICON_CAP}>
+          <EraserIcon />
         </button>
         <button onClick={() => onFlip('horizontal')} aria-label="Flip left to right" className={ICON_CAP}>
           <FlipIcon axis="horizontal" />
