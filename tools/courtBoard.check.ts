@@ -64,6 +64,7 @@ const board = (over: Partial<CourtBoard> = {}): CourtBoard => ({
   ballHolderId: 'a',
   ballLoosePos: null,
   seq: 0,
+  retiredSeq: -Infinity,
   ...over,
 })
 
@@ -272,11 +273,11 @@ console.log('\n11. reconcileStash keeps floor-ended transfers, drops player-ende
 
 console.log('\n12. CourtBoard field set — tripwire for a field added but never applied')
 {
-  // `setCourtType` applies these one by one. Add an eighth field to CourtBoard
-  // and forget the matching setter and the board restores incomplete, silently.
+  // `setCourtType` applies these one by one. Add a tenth field to CourtBoard and
+  // forget the matching setter and the board restores incomplete, silently.
   // This fails the moment the shape changes, forcing a look at the apply step.
   eq(
-    'exactly the eight known fields',
+    'exactly the nine known fields',
     Object.keys(buildDefaultBoard([P('a')], [{ x: 0, y: 0 }], 27, 'a')).sort(),
     [
       'ballHolderId',
@@ -285,10 +286,23 @@ console.log('\n12. CourtBoard field set — tripwire for a field added but never
       'ballTransfers',
       'marks',
       'players',
+      'retiredSeq',
       'routes',
       'seq',
     ],
   )
+}
+
+console.log('\n12b. the retired-lines cutoff is per-court and survives a round trip')
+{
+  // Lines that have aged off the board stay off, and that cutoff is a position
+  // on *this* court's authoring timeline. Leave it behind on a switch and a
+  // mark retired on half court reappears the moment you come back.
+  const retired = board({ retiredSeq: 7 })
+  const out = switchCourt({}, 'half', 'full', retired, fullDefaults)
+  eq('an unvisited court has retired nothing', out.board.retiredSeq, -Infinity)
+  const back = switchCourt(out.stash, 'full', 'half', out.board, halfDefaults)
+  eq('returning restores the cutoff', back.board.retiredSeq, 7)
 }
 
 console.log('\n13. free-draw marks are per-court, survive a round trip, and outlive a roster edit')

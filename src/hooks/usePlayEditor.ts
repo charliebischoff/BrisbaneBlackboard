@@ -24,7 +24,7 @@ import {
 } from '../lib/routeGeometry'
 import { buildDefaultBoard, CourtStash, reconcileStash, switchCourt } from '../lib/courtBoard'
 import { nearestCatcher, restingOffset } from '../lib/ballPlacement'
-import { normalizeSequence } from '../lib/playSequence'
+import { nextSeqAfter, normalizeSequence } from '../lib/playSequence'
 import { rosterStore } from '../lib/rosterStore'
 import { localPlayStore } from '../lib/storage'
 import {
@@ -343,7 +343,6 @@ export function usePlayEditor() {
    * newly drawn actions into the middle of a loaded play's sequence.
    */
   const seqRef = useRef(0)
-  const nextSeq = useCallback(() => seqRef.current++, [])
 
   /**
    * The board left behind on the court we're not looking at. A ref rather than
@@ -390,6 +389,64 @@ export function usePlayEditor() {
     )
     setBallTransfers((prev) => prev.filter((t) => t.seq >= floor))
   }, [routes, ballTransfers])
+
+  /**
+   * The cutoff below which lines have aged off the board and must stay off.
+   *
+   * The board shows the last few lines (the visible-lines setting), and that used
+   * to be recomputed from scratch every render — "which N are newest *right
+   * now*". Which meant deleting a newer line promoted an older one straight back
+   * into view: erase a token arrow and a free-draw mark that aged off minutes ago
+   * reappears. Nothing was ever actually retired.
+   *
+   * So the cutoff is kept, and only two things move it:
+   *
+   * - **Drawing** pushes it up, as before — that is `lineSeqFloor` below.
+   * - **Undo** winds it back, via the `floorBefore` each line records. Undo is
+   *   the one action meant to be a true reversal of what it removes.
+   *
+   * Erasing is deliberately absent. `clearAllRoutes`, `clearAllMarks` and
+   * `removePlayerFromCourt` don't touch it, which is the whole fix: a targeted
+   * wipe has no business un-hiding work that aged off on its own.
+   */
+  const [retiredSeq, setRetiredSeq] = useState(-Infinity)
+
+  /**
+   * `max` of the kept cutoff and what the live board would ask for on its own.
+   *
+   * Taken here rather than only when storing it so a line drawn past the limit
+   * can't flash for a frame before the state catches up — the render that adds
+   * the line already filters against the raised floor.
+   */
+  const visibleFloor = useMemo(
+    () =>
+      Math.max(
+        retiredSeq,
+        lineSeqFloor(routes, ballTransfers, marks, settings.maxVisibleLines),
+      ),
+    [retiredSeq, routes, ballTransfers, marks, settings.maxVisibleLines],
+  )
+
+  // Persist each rise. `Math.max` returns the previous value by identity when
+  // nothing moved, so React bails out of the re-render and this can't loop.
+  useEffect(() => setRetiredSeq(visibleFloor), [visibleFloor])
+
+  /**
+   * Issues a line's place in the authoring order, together with the cutoff that
+   * was in force just before it — the pair `undoLastAction` needs to put the
+   * board back exactly as it was. One call hands out both so the two can never
+   * drift apart.
+   *
+   * Call it outside state updaters: StrictMode double-invokes those, which would
+   * burn two counter values per stroke.
+   */
+  const stampLine = useCallback(
+    (): { seq: number; floorBefore: number | null } => ({
+      seq: seqRef.current++,
+      floorBefore: visibleFloor === -Infinity ? null : visibleFloor,
+    }),
+    [visibleFloor],
+  )
 
   const selectPlayer = useCallback((id: string) => {
     setSelectedPlayerId((current) => (current === id ? null : id))
@@ -448,6 +505,7 @@ export function usePlayEditor() {
         ballHolderId,
         ballLoosePos,
         seq: seqRef.current,
+        retiredSeq,
       },
       defaults,
     )
@@ -462,6 +520,7 @@ export function usePlayEditor() {
     setBallHolderId(board.ballHolderId)
     setBallLoosePos(board.ballLoosePos)
     seqRef.current = board.seq
+    setRetiredSeq(board.retiredSeq)
 
     setBallGesture(null)
     setBallHint(null)
@@ -480,6 +539,7 @@ export function usePlayEditor() {
     ballOffset,
     ballHolderId,
     ballLoosePos,
+    retiredSeq,
   ])
 
   // --- Flip -------------------------------------------------------------
@@ -669,26 +729,34 @@ export function usePlayEditor() {
   }, [players, routes])
   
   const undoLastAction = useCallback(() => {
-    type Best =
-      | { kind: 'segment'; playerId: string; seq: number }
-      | { kind: 'transfer'; seq: number }
-      | { kind: 'mark'; id: string; seq: number }
+    type Best = { seq: number; floorBefore?: number | null } & (
+      | { kind: 'segment'; playerId: string }
+      | { kind: 'transfer' }
+      | { kind: 'mark'; id: string }
+    )
 
     let best: Best | null = null
     for (const route of routes) {
       for (const seg of route.segments) {
-        if (!best || seg.seq > best.seq) best = { kind: 'segment', playerId: route.playerId, seq: seg.seq }
+        if (!best || seg.seq > best.seq)
+          best = { kind: 'segment', playerId: route.playerId, seq: seg.seq, floorBefore: seg.floorBefore }
       }
     }
     for (const t of ballTransfers) {
-      if (!best || t.seq > best.seq) best = { kind: 'transfer', seq: t.seq }
+      if (!best || t.seq > best.seq) best = { kind: 'transfer', seq: t.seq, floorBefore: t.floorBefore }
     }
     // Marks share the counter, so an annotation drawn after a cut undoes before
     // it — one chronological history, not a separate annotation history.
     for (const m of marks) {
-      if (!best || m.seq > best.seq) best = { kind: 'mark', id: m.id, seq: m.seq }
+      if (!best || m.seq > best.seq) best = { kind: 'mark', id: m.id, seq: m.seq, floorBefore: m.floorBefore }
     }
     if (!best) return
+
+    // Undo is the one action that winds the visible-lines cutoff back, so that
+    // removing a line also un-hides whatever drawing it pushed off the board.
+    // `null` (or absent, on a play saved before this was recorded) means nothing
+    // had been retired when it was drawn.
+    setRetiredSeq(best.floorBefore ?? -Infinity)
 
     stopPlaybackRef.current()
     setPlaybackT(0)
@@ -857,8 +925,11 @@ export function usePlayEditor() {
     const record = (landing: Point, toId: string | null) => {
       if (!origin) return
       // Taken outside the updater — those run twice under StrictMode.
-      const seq = nextSeq()
-      setBallTransfers((prev) => [...prev, { fromId, toId, points: [origin, landing], seq }])
+      const stamp = stampLine()
+      setBallTransfers((prev) => [
+        ...prev,
+        { fromId, toId, points: [origin, landing], ...stamp },
+      ])
     }
 
     if (!closest) {
@@ -909,7 +980,7 @@ export function usePlayEditor() {
     ballLoosePos,
     ballOffset,
     restingPositions,
-    nextSeq,
+    stampLine,
     courtType,
     currentBallRadius,
     currentPlayerRadius,
@@ -919,6 +990,11 @@ export function usePlayEditor() {
 
   const setMaxVisibleLines = useCallback((value: number) => {
     setSettings(settingsStore.save({ ...settings, maxVisibleLines: value }))
+    // Changing the budget re-opens the question of what's too old to show.
+    // Without this, moving the slider from 3 to 6 would reveal nothing — the
+    // retired cutoff would still be holding the older lines down, and the
+    // setting would read as broken. It re-derives from the board immediately.
+    setRetiredSeq(-Infinity)
   }, [settings])
 
   /**
@@ -1022,7 +1098,11 @@ export function usePlayEditor() {
     const segmentType: LineType =
       mode === 'drag' ? (ballHolderId === gesture.playerId ? 'carry' : 'motion') : lineType
 
-    const newSegment: RouteSegment = { type: segmentType, points: gesture.points, seq: nextSeq() }
+    const newSegment: RouteSegment = {
+      type: segmentType,
+      points: gesture.points,
+      ...stampLine(),
+    }
     setRoutes((prev) => {
       const existing = prev.find((r) => r.playerId === gesture.playerId)
       if (!existing) return [...prev, { playerId: gesture.playerId, segments: [newSegment] }]
@@ -1051,14 +1131,14 @@ export function usePlayEditor() {
       // player over first and only then hands them the ball. The line is the
       // short hop from where the ball lay to where it ends up resting against
       // them — `ballPosition` reads both ends straight back off it.
-      const pickupSeq = nextSeq()
+      const pickupStamp = stampLine()
       setBallTransfers((prev) => [
         ...prev,
         {
           fromId: null,
           toId: gesture.playerId,
           points: [{ ...ballLoosePos }, { x: end.x + offset.x, y: end.y + offset.y }],
-          seq: pickupSeq,
+          ...pickupStamp,
         },
       ])
       setBallHolderId(gesture.playerId)
@@ -1090,7 +1170,7 @@ export function usePlayEditor() {
     mode,
     ballHolderId,
     ballLoosePos,
-    nextSeq,
+    stampLine,
     currentBallRadius,
     currentPlayerRadius,
   ])
@@ -1151,11 +1231,11 @@ export function usePlayEditor() {
     // localStorage for precision finer than a pixel on any screen this runs on.
     // flipPoint is `W - x`, so integers stay integers and a flip stays exact.
     const snapped = points.map((p) => ({ x: Math.round(p.x), y: Math.round(p.y) }))
-    // seq read outside the updater: StrictMode double-invokes those, which would
+    // Stamped outside the updater: StrictMode double-invokes those, which would
     // burn two counter values per stroke.
-    const seq = nextSeq()
-    setMarks((prev) => [...prev, { id: uuid(), points: snapped, seq }].slice(-MAX_MARKS))
-  }, [markGesture, nextSeq])
+    const stamp = stampLine()
+    setMarks((prev) => [...prev, { id: uuid(), points: snapped, ...stamp }].slice(-MAX_MARKS))
+  }, [markGesture, stampLine])
 
   /**
    * How much of a mark to draw, as a fraction, or null for "all of it".
@@ -1210,8 +1290,13 @@ export function usePlayEditor() {
     // arrow underneath an old scribble, hiding it from the shared visible-lines
     // budget and sending `undoLastAction` backwards through the annotation
     // first. Rebase to just above whatever is left instead.
-    seqRef.current = normalizeSequence([], [], marks).nextSeq
-  }, [routes, players, ballTransfers, marks, ballOffset, ballHolderId, ballLoosePos])
+    //
+    // The cutoff term is what stops the rebase landing *below* it. The erase
+    // leaves the cutoff where it is, so if the lines that set it were the ones
+    // just wiped, a bare rebase would hand the next stroke a seq under the
+    // cutoff — drawn and invisible in the same gesture.
+    seqRef.current = Math.max(nextSeqAfter([], [], marks), visibleFloor + 1)
+  }, [routes, players, ballTransfers, marks, ballOffset, ballHolderId, ballLoosePos, visibleFloor])
 
   /** Puts back exactly what the last token-arrow erase took. One level only. */
   const undoClearAll = useCallback(() => {
@@ -1225,10 +1310,7 @@ export function usePlayEditor() {
     // Not simply the banked value: marks drawn *since* the erase were stamped
     // from the rebased counter, so winding it back would let the next stroke
     // collide with one of them. Take whichever is higher.
-    seqRef.current = Math.max(
-      pendingErase.seq,
-      normalizeSequence([], [], marks).nextSeq,
-    )
+    seqRef.current = Math.max(pendingErase.seq, nextSeqAfter([], [], marks))
     setPendingErase(null)
   }, [pendingErase, marks])
 
@@ -1242,18 +1324,16 @@ export function usePlayEditor() {
     setPendingErase({ kind: 'marks', marks, seq: seqRef.current })
     setMarks([])
     // Same rebase reasoning as `clearAllRoutes`, mirrored: the lines are what
-    // survives here, so the counter settles just above them.
-    seqRef.current = normalizeSequence(routes, ballTransfers, []).nextSeq
-  }, [marks, routes, ballTransfers])
+    // survives here, so the counter settles just above them — and no lower than
+    // the cutoff, for the reason spelled out there.
+    seqRef.current = Math.max(nextSeqAfter(routes, ballTransfers, []), visibleFloor + 1)
+  }, [marks, routes, ballTransfers, visibleFloor])
 
   /** Puts back exactly what the last free-draw erase took. One level only. */
   const undoClearMarks = useCallback(() => {
     if (pendingErase?.kind !== 'marks') return
     setMarks(pendingErase.marks)
-    seqRef.current = Math.max(
-      pendingErase.seq,
-      normalizeSequence(routes, ballTransfers, []).nextSeq,
-    )
+    seqRef.current = Math.max(pendingErase.seq, nextSeqAfter(routes, ballTransfers, []))
     setPendingErase(null)
   }, [pendingErase, routes, ballTransfers])
 
@@ -1558,6 +1638,7 @@ export function usePlayEditor() {
         ballLoose: ballLoosePos,
         ballTransfers,
         marks,
+        retiredSeq: retiredSeq === -Infinity ? null : retiredSeq,
         // Annotations aren't movement, so a board with nothing but marks on it
         // is still a formation — this answers "does anything happen in this
         // play?", which playback cares about and marks take no part in.
@@ -1574,6 +1655,7 @@ export function usePlayEditor() {
       ballLoosePos,
       ballTransfers,
       marks,
+      retiredSeq,
     ],
   )
 
@@ -1589,6 +1671,9 @@ export function usePlayEditor() {
         ballTransfers,
         marks,
       }),
+    // `retiredSeq` deliberately absent: it only ever moves because a line was
+    // drawn or undone, and that line is already in the signature. Including it
+    // would also make moving the visible-lines slider read as an unsaved edit.
     [courtType, players, routes, ballHolderId, ballOffset, ballLoosePos, ballTransfers, marks],
   )
 
@@ -1649,6 +1734,12 @@ export function usePlayEditor() {
       // what was loaded.
       const seq = normalizeSequence(play.routes, play.ballTransfers ?? [], play.marks ?? [])
       seqRef.current = seq.nextSeq
+      // Restored, not reset: lines that had aged off when this play was saved
+      // must stay off. Resetting here would let a save-and-reload resurrect
+      // exactly what erasing is no longer allowed to. Absent (`null`, or a play
+      // written before this was recorded) means nothing had been retired, and
+      // the cutoff re-derives from the lines that came in.
+      setRetiredSeq(play.retiredSeq ?? -Infinity)
       setRoutes(seq.routes)
       setMarks(seq.marks)
       // A play saved with the ball on the floor has no holder *on purpose*, so
@@ -1698,6 +1789,7 @@ export function usePlayEditor() {
     setPlayers(fresh)
     setRoutes([])
     seqRef.current = 0
+    setRetiredSeq(-Infinity)
     setBallHolderId(fresh[0]?.id ?? null)
     setBallLoosePos(null)
     setBallOffset(DEFAULT_BALL_OFFSET)
@@ -1762,6 +1854,12 @@ export function usePlayEditor() {
     extendMarkGesture,
     endMarkGesture,
     markReveal,
+    /**
+     * Lines with a lower `seq` than this have aged off the board and stay off.
+     * Derived here rather than in the renderer so that the one rule — what is
+     * too old to show — can't be answered two different ways.
+     */
+    visibleFloor,
     isPlaying,
     speed,
     playbackT,

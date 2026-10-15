@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { Stage, Layer, Circle } from 'react-konva'
 import Konva from 'konva'
 import Court from './Court'
@@ -9,7 +9,6 @@ import BallToken from './BallToken'
 import PlayerSwapMenu from './PlayerSwapMenu'
 import { usePlayEditor, passCatchRadius } from '../hooks/usePlayEditor'
 import { BALL_COLOR, PLAYER_TOKEN_RADIUS } from '../lib/court'
-import { lineSeqFloor } from '../lib/routeGeometry'
 import { isDoubleTap, type TapRecord } from '../lib/tapGesture'
 
 const TEAM_COLOR = { offense: '#3b82f6', defense: '#dc2626' } as const
@@ -202,17 +201,12 @@ export default function CourtEditor({ editor, onOpenRoster }: Props) {
    * Only the most recent few lines stay on the board — older ones fade out of
    * view as soon as a new drag is released. Nothing is deleted here; state is
    * pruned separately at a much higher cap in usePlayEditor.
+   *
+   * The cutoff itself comes from the editor, because it is not purely a function
+   * of what is on the board right now: once a line has aged off it stays off,
+   * and only undo winds that back. See `visibleFloor` in `usePlayEditor`.
    */
-  const visibleFloor = useMemo(
-    () =>
-      lineSeqFloor(
-        editor.routes,
-        editor.ballTransfers,
-        editor.marks,
-        editor.settings.maxVisibleLines,
-      ),
-    [editor.routes, editor.ballTransfers, editor.marks, editor.settings.maxVisibleLines],
-  )
+  const visibleFloor = editor.visibleFloor
 
   /**
    * Last token tap, for double-tap detection. A ref rather than state: nothing

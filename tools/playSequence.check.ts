@@ -10,7 +10,7 @@
  * only visible output is a counter — so every bug here is silent until a coach
  * reloads a saved play and hits undo. That is why it is covered at all.
  */
-import { normalizeSequence } from '../src/lib/playSequence'
+import { nextSeqAfter, normalizeSequence } from '../src/lib/playSequence'
 import type { BallTransfer, FreeDrawMark, PlayerRoute } from '../src/types'
 
 let failures = 0
@@ -119,6 +119,30 @@ console.log('\n7. the input is never mutated in place')
   const before = JSON.stringify([routes, transfers, marks])
   normalizeSequence(routes, transfers, marks)
   eq('caller arrays unchanged', JSON.stringify([routes, transfers, marks]), before)
+}
+
+console.log('\n8. nextSeqAfter — where the counter resumes after an erase')
+{
+  // The erase paths used to ask `normalizeSequence` for this, rebuilding every
+  // array just to read the counter off the end. Same answer, no allocation.
+  eq('empty board starts at 0', nextSeqAfter([], [], []), 0)
+  eq('one above the highest route seq', nextSeqAfter([R('a', [0, 4]), R('b', [2])], [], []), 5)
+  eq('transfers count too', nextSeqAfter([R('a', [1])], [T(9)], []), 10)
+  eq('marks count too', nextSeqAfter([], [], [M('m', 3), M('n', 7)]), 8)
+  eq('highest wins across all three', nextSeqAfter([R('a', [6])], [T(2)], [M('m', 4)]), 7)
+  // Not identical to `normalizeSequence`, which is what these call sites used
+  // to ask. That one bumps its counter once per line as it walks them, so a
+  // board whose seqs aren't in array order leaves it overshooting the highest.
+  // Both answers clear every existing seq, which is all the erase paths need —
+  // this one is just the tight answer, and the one that matches its own name.
+  const routes = [R('a', [0, 1])]
+  const transfers = [T(5)]
+  const marks = [M('m', 3)]
+  eq('one past the highest, exactly', nextSeqAfter(routes, transfers, marks), 6)
+  check(
+    'normalizeSequence overshoots here — same guarantee, looser',
+    normalizeSequence(routes, transfers, marks).nextSeq >= 6,
+  )
 }
 
 console.log(failures === 0 ? '\nALL PASS' : `\n${failures} FAILURE(S)`)

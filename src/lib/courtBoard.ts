@@ -47,6 +47,18 @@ export interface CourtBoard {
    * landing after them.
    */
   seq: number
+  /**
+   * The visible-lines cutoff on this court — lines below it have aged off and
+   * must stay off. Travels with the board for the same reason `seq` does: it is
+   * a position on *this* court's authoring timeline and means nothing on the
+   * other one. Leave it behind and a mark retired on half court comes back the
+   * moment you switch to full court and return.
+   *
+   * `-Infinity` = nothing retired yet. Safe as a float here where it would not
+   * be in `Play`: the stash is in-memory and session-only, so it never goes
+   * near JSON.
+   */
+  retiredSeq: number
 }
 
 /** Boards for courts that have been visited and left. Absent = never visited. */
@@ -86,6 +98,7 @@ export function buildDefaultBoard(
     // `ballHolderId` carries over, so there is nothing loose to carry with it.
     ballLoosePos: null,
     seq: 0,
+    retiredSeq: -Infinity,
   }
 }
 
@@ -100,6 +113,7 @@ function copy(board: CourtBoard): CourtBoard {
     ballHolderId: board.ballHolderId,
     ballLoosePos: board.ballLoosePos ? { ...board.ballLoosePos } : null,
     seq: board.seq,
+    retiredSeq: board.retiredSeq,
   }
 }
 

@@ -17,6 +17,32 @@ import type { BallTransfer, FreeDrawMark, PlayerRoute } from '../types'
  * Lives here rather than inside `usePlayEditor` purely so it can be checked
  * headlessly — same reason `courtBoard.ts` is a module. Keep it React-free.
  */
+/**
+ * One above the highest `seq` present — i.e. where the counter has to resume so
+ * the next line drawn lands after everything still on the board.
+ *
+ * The erase paths used to ask `normalizeSequence` for this, which rebuilt every
+ * route, transfer and mark array purely so the caller could read the counter off
+ * the end. Same answer, no allocation, and it says what it means.
+ *
+ * 0 for an empty board, matching the counter's starting value.
+ */
+export function nextSeqAfter(
+  routes: PlayerRoute[],
+  transfers: BallTransfer[],
+  marks: FreeDrawMark[],
+): number {
+  let highest = -1
+  for (const route of routes) {
+    for (const segment of route.segments) {
+      if (segment.seq > highest) highest = segment.seq
+    }
+  }
+  for (const transfer of transfers) if (transfer.seq > highest) highest = transfer.seq
+  for (const mark of marks) if (mark.seq > highest) highest = mark.seq
+  return highest + 1
+}
+
 export function normalizeSequence(
   routes: PlayerRoute[],
   transfers: BallTransfer[],

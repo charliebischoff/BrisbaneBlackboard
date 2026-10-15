@@ -32,6 +32,19 @@ export interface RouteSegment {
    * gaps are fine. Playback runs actions one after another in this order.
    */
   seq: number
+  /**
+   * The visible-lines cutoff as it stood immediately *before* this line was
+   * drawn — what `undoLastAction` winds back to when it removes this line, so
+   * that undoing a line also un-hides whatever drawing it pushed off the board.
+   *
+   * Only undo restores it. Erasing deliberately leaves the cutoff where it is,
+   * which is what stops a wipe from resurrecting lines that aged off long ago.
+   *
+   * `null` means "nothing was retired yet" — deliberately not `-Infinity`, which
+   * `JSON.stringify` turns into `null` anyway on the way into storage. Optional
+   * because plays saved before this existed have no record to restore.
+   */
+  floorBefore?: number | null
 }
 
 export interface Player {
@@ -80,6 +93,8 @@ export interface BallTransfer {
   points: Point[]
   /** Same global authoring order as RouteSegment.seq — see there. */
   seq: number
+  /** See RouteSegment.floorBefore. */
+  floorBefore?: number | null
 }
 
 /**
@@ -104,6 +119,8 @@ export interface FreeDrawMark {
    * Marks do not currently take part in playback; see README.
    */
   seq: number
+  /** See RouteSegment.floorBefore. */
+  floorBefore?: number | null
 }
 
 export type CourtType = 'full' | 'half'
@@ -129,6 +146,20 @@ export interface Play {
   ballTransfers?: BallTransfer[]
   /** freehand annotations. Optional — plays saved before marker mode existed have none. */
   marks?: FreeDrawMark[]
+  /**
+   * The visible-lines cutoff when this play was written — lines below it had
+   * aged off the board and must come back off it on load, not reappear.
+   *
+   * Saved for the same reason the per-court stash carries it: without it, a
+   * coach who erases and saves gets the retired lines back on the next load,
+   * which is the bug this whole mechanism exists to stop. `null`/absent means
+   * nothing had been retired, which is also what plays saved before this
+   * existed get.
+   *
+   * A number, never `-Infinity` — `JSON.stringify` writes that as `null`, so
+   * the two would be indistinguishable coming back anyway.
+   */
+  retiredSeq?: number | null
   /** true if every route has zero segments — i.e. just a formation */
   isFormationOnly: boolean
 }
