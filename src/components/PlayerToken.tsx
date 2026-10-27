@@ -128,7 +128,7 @@ export default function PlayerToken({
       <Group x={radius * 0.68} y={radius * 0.68}>
         <Circle radius={9 * sizeScale} fill={TEAM_COLOR[player.team]} stroke="#f5efe0" strokeWidth={1.5} />
         <Text
-          text={player.number > 0 ? String(player.number) : '?'}
+          text={player.number !== null ? String(player.number) : '?'}
           fontSize={10 * sizeScale}
           fontStyle="bold"
           fill="#f5efe0"

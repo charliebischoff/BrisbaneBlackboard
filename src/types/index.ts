@@ -49,7 +49,9 @@ export interface RouteSegment {
 
 export interface Player {
   id: string
-  number: number
+  /** `null` when the roster entry's jersey is unconfirmed — kept distinct from
+      0, which is a number players actually wear. */
+  number: number | null
   team: 'offense' | 'defense'
   x: number
   y: number

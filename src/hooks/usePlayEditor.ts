@@ -221,7 +221,7 @@ function buildDefaultPlayers(courtType: CourtType): Player[] {
 
   return selected.map((rp, i) => ({
     id: rp.id,
-    number: rp.number ?? 0,
+    number: rp.number,
     team: 'offense' as const,
     name: rp.name,
     photoUrl: rp.photo,
@@ -641,7 +641,7 @@ export function usePlayEditor() {
           ...prev,
           {
             id: rosterPlayer.id,
-            number: rosterPlayer.number ?? 0,
+            number: rosterPlayer.number,
             team: 'offense',
             name: rosterPlayer.name,
             photoUrl: rosterPlayer.photo,
@@ -670,7 +670,7 @@ export function usePlayEditor() {
         .filter((p) => byId.has(p.id))
         .map((p) => {
           const rp = byId.get(p.id)!
-          return { ...p, name: rp.name, number: rp.number ?? 0, photoUrl: rp.photo }
+          return { ...p, name: rp.name, number: rp.number, photoUrl: rp.photo }
         }),
     )
     const gone = (id: string) => !byId.has(id)
@@ -829,7 +829,7 @@ export function usePlayEditor() {
       if (prev.some((p) => p.id === incoming.id)) return prev
       return prev.map((p) =>
         p.id === outgoingId
-          ? { ...p, id: incoming.id, number: incoming.number ?? 0, name: incoming.name, photoUrl: incoming.photo }
+          ? { ...p, id: incoming.id, number: incoming.number, name: incoming.name, photoUrl: incoming.photo }
           : p,
       )
     })

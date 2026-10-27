@@ -231,7 +231,7 @@ export default function Toolbar({ editor }: { editor: Editor }) {
             {!ballHolder && <option value="">— nobody —</option>}
             {editor.rawPlayers.map((p) => (
               <option key={p.id} value={p.id}>
-                {p.name ?? `#${p.number}`}
+                {p.name ?? (p.number !== null ? `#${p.number}` : '#?')}
               </option>
             ))}
           </select>
