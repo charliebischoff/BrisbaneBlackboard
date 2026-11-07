@@ -13,9 +13,13 @@
  * for DEFAULT_SPOTS or the size settings, which keeps the coordinate-space
  * knowledge in one place (the editor hook) and this file testable on its own.
  *
- * The stash is written once on the way out of a court and read once on the way
- * back in — there is never a second live board kept in sync with the first, so
- * there is no invariant that can drift between switches.
+ * Geometry is written once on the way out of a court and read once on the way
+ * back in. *Squad membership* is the one exception: who is on the court is the
+ * same on both, so the three actions that change it — substitute, add, remove —
+ * apply themselves to the stashed board at the same time as the live one, via
+ * the helpers at the foot of this file. That keeps the two boards
+ * squad-identical by construction, so the switch itself still has nothing to
+ * reconcile.
  */
 import type { BallTransfer, CourtType, FreeDrawMark, Player, PlayerRoute, Point } from '../types'
 
@@ -181,4 +185,125 @@ export function reconcileStash(stash: CourtStash, validIds: Set<string>): CourtS
     }
   }
   return out
+}
+
+/** The roster fields an on-court player carries a copy of. */
+export interface IncomingPlayer {
+  id: string
+  number: number | null
+  name?: string
+  photoUrl?: string
+}
+
+function mapBoards(stash: CourtStash, fn: (board: CourtBoard) => CourtBoard): CourtStash {
+  const out: CourtStash = {}
+  for (const key of Object.keys(stash) as CourtType[]) {
+    const board = stash[key]
+    if (board) out[key] = fn(board)
+  }
+  return out
+}
+
+/**
+ * Substitutes one player for another on every stashed board — the stash-side
+ * half of `swapPlayerOnCourt`.
+ *
+ * A substitution is a *rename*, not a remove-plus-add: the incoming player
+ * inherits the outgoing player's spot, routes and ball history on each court
+ * separately. That's what lets the squad follow the coach across the switch
+ * while geometry stays per-court, and it leaves `seq`/`retiredSeq` alone, so
+ * playback order survives untouched.
+ */
+export function substituteInStash(
+  stash: CourtStash,
+  outgoingId: string,
+  incoming: IncomingPlayer,
+): CourtStash {
+  return mapBoards(stash, (board) => {
+    // Already there: renaming would produce two of them. Leave the whole board
+    // alone rather than rewriting routes onto a player who is on it twice.
+    if (board.players.some((p) => p.id === incoming.id)) return board
+    const rename = (id: string | null) => (id === outgoingId ? incoming.id : id)
+    return {
+      ...board,
+      players: board.players.map((p) =>
+        p.id === outgoingId
+          ? { ...p, id: incoming.id, number: incoming.number, name: incoming.name, photoUrl: incoming.photoUrl }
+          : p,
+      ),
+      routes: board.routes.map((r) => (r.playerId === outgoingId ? { ...r, playerId: incoming.id } : r)),
+      // Remapped, never filtered: a null end is the floor, so dropping the
+      // outgoing player's transfers would turn their passes into put-downs.
+      ballTransfers: board.ballTransfers.map((t) => ({
+        ...t,
+        fromId: rename(t.fromId),
+        toId: rename(t.toId),
+      })),
+      ballHolderId: rename(board.ballHolderId),
+    }
+  })
+}
+
+/**
+ * Puts a player on every stashed board — the stash-side half of
+ * `addPlayerToCourt`.
+ *
+ * `pickSpot` and `ballOffsetFor` are callbacks rather than values, because where
+ * they land and how far the ball sits from them depend on that court's own
+ * default spots and token sizes, and this module deliberately knows nothing
+ * about either coordinate space.
+ */
+export function addPlayerToStash(
+  stash: CourtStash,
+  player: Player,
+  pickSpot: (board: CourtBoard, court: CourtType) => Point,
+  ballOffsetFor: (court: CourtType) => Point,
+): CourtStash {
+  const out: CourtStash = {}
+  for (const key of Object.keys(stash) as CourtType[]) {
+    const board = stash[key]
+    if (!board) continue
+    if (board.players.some((p) => p.id === player.id)) {
+      out[key] = board
+      continue
+    }
+    const spot = pickSpot(board, key)
+    // Same rule as the live court: a board with no ball at all hands it to
+    // whoever refills it, since there is no possession control in the UI. A
+    // ball lying loose is still a ball, so it isn't taken.
+    const handOver = board.ballHolderId == null && board.ballLoosePos == null
+    out[key] = {
+      ...board,
+      players: [...board.players, { ...player, x: spot.x, y: spot.y }],
+      ballHolderId: handOver ? player.id : board.ballHolderId,
+      // The stored offset was measured against whoever last held it there, so
+      // it means nothing relative to the newcomer.
+      ballOffset: handOver ? ballOffsetFor(key) : board.ballOffset,
+    }
+  }
+  return out
+}
+
+/**
+ * Takes a player off every stashed board — the stash-side half of
+ * `removePlayerFromCourt`.
+ *
+ * Deliberately gentler than the live version, which bins the *whole* transfer
+ * chain when the departing player held the ball. Each board has its own
+ * `ballHolderId`, so that rule here would destroy transfers unrelated to this
+ * player on a court the coach can't see and didn't act on. Possession is passed
+ * to a survivor instead, exactly as `reconcileStash` does.
+ */
+export function removePlayerFromStash(stash: CourtStash, id: string): CourtStash {
+  return mapBoards(stash, (board) => {
+    const players = board.players.filter((p) => p.id !== id)
+    if (players.length === board.players.length) return board
+    return {
+      ...board,
+      players,
+      routes: board.routes.filter((r) => r.playerId !== id),
+      ballTransfers: board.ballTransfers.filter((t) => t.fromId !== id && t.toId !== id),
+      ballHolderId: board.ballHolderId === id ? players[0]?.id ?? null : board.ballHolderId,
+    }
+  })
 }

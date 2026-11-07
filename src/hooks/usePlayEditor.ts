@@ -22,7 +22,15 @@ import {
   pointAtFraction,
   routeEndPoint,
 } from '../lib/routeGeometry'
-import { buildDefaultBoard, CourtStash, reconcileStash, switchCourt } from '../lib/courtBoard'
+import {
+  addPlayerToStash,
+  buildDefaultBoard,
+  CourtStash,
+  reconcileStash,
+  removePlayerFromStash,
+  substituteInStash,
+  switchCourt,
+} from '../lib/courtBoard'
 import { nearestCatcher, restingOffset } from '../lib/ballPlacement'
 import { nextSeqAfter, normalizeSequence } from '../lib/playSequence'
 import { rosterStore } from '../lib/rosterStore'
@@ -624,6 +632,42 @@ export function usePlayEditor() {
         setBallHolderId(rosterPlayer.id)
         setBallOffset(DEFAULT_BALL_OFFSET)
       }
+      // The squad is the same on both courts, so the other court's stashed
+      // board gets them too — at a free spot of its own, since geometry is
+      // never translated between the two coordinate spaces. Outside the
+      // updater: those run twice under StrictMode.
+      const alreadyOn = players.some((p) => p.id === rosterPlayer.id)
+      const full = players.filter((p) => p.team === 'offense').length >= MAX_OFFENSE_ON_COURT
+      if (!alreadyOn && !full) {
+        courtStash.current = addPlayerToStash(
+          courtStash.current,
+          {
+            id: rosterPlayer.id,
+            number: rosterPlayer.number,
+            team: 'offense',
+            name: rosterPlayer.name,
+            photoUrl: rosterPlayer.photo,
+            x: 0,
+            y: 0,
+          },
+          (board, court) =>
+            pickFreeSpot(
+              DEFAULT_SPOTS[court],
+              board.players.map((p) =>
+                routeEndPoint(
+                  board.routes.find((r) => r.playerId === p.id),
+                  { x: p.x, y: p.y },
+                ),
+              ),
+            ),
+          (court) => {
+            // That court's own token sizes, not DEFAULT_BALL_OFFSET — same
+            // reasoning as `setCourtType`.
+            const size = settings.sizes[court]
+            return { x: ballMinGap(size.ballRadius, size.playerRadius), y: 0 }
+          },
+        )
+      }
       setPlayers((prev) => {
         if (prev.some((p) => p.id === rosterPlayer.id)) return prev
         const offenseCount = prev.filter((p) => p.team === 'offense').length
@@ -651,7 +695,7 @@ export function usePlayEditor() {
         ]
       })
     },
-    [courtType, routes, ballHolderId],
+    [courtType, routes, players, ballHolderId, settings],
   )
 
   /**
@@ -693,6 +737,9 @@ export function usePlayEditor() {
 
   const removePlayerFromCourt = useCallback(
     (id: string) => {
+      // Off this court means off both — the squad is shared. Outside the
+      // updater: those run twice under StrictMode.
+      courtStash.current = removePlayerFromStash(courtStash.current, id)
       setPlayers((prev) => prev.filter((p) => p.id !== id))
       setRoutes((prev) => prev.filter((r) => r.playerId !== id))
       // A transfer that names a player who is no longer on court can't be drawn
@@ -825,6 +872,15 @@ export function usePlayEditor() {
    */
   
   const swapPlayerOnCourt = useCallback((outgoingId: string, incoming: RosterPlayer) => {
+    // The same rename on the other court's stashed board, so the squad matches
+    // across the switch: the incoming player inherits the outgoing one's spot
+    // and drawn work *there* too. Outside the updater — StrictMode.
+    courtStash.current = substituteInStash(courtStash.current, outgoingId, {
+      id: incoming.id,
+      number: incoming.number,
+      name: incoming.name,
+      photoUrl: incoming.photo,
+    })
     setPlayers((prev) => {
       if (prev.some((p) => p.id === incoming.id)) return prev
       return prev.map((p) =>

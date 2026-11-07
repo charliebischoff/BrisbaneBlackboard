@@ -48,17 +48,36 @@ left and restores the one being entered (`lib/courtBoard.ts` — pure, so it can
 tested headlessly), falling back to that court's `DEFAULT_SPOTS` the first time a
 court is opened. The stash is session-only, is written once on exit and read once
 on entry, and carries `seqRef` with it — the authoring-order counter is shared by
-routes and transfers, so a board restored without it replays out of order. Three
-places must touch the stash: `loadPlay` and `newPlay` clear it, and
+routes and transfers, so a board restored without it replays out of order. Six
+places must touch the stash: `loadPlay` and `newPlay` clear it,
 `syncCourtWithRoster` reconciles it so a deleted player can't survive on the
-court you aren't looking at.
+court you aren't looking at, and the three squad actions below apply themselves
+to it.
 
-Note this made on-court squad selection per court too — `players` is part of the
-stashed board, so adding someone to the court on half court does not add them on
-full court, and `MAX_OFFENSE_ON_COURT` is counted per court. That's a deliberate
-choice (each court is its own board, squad included) and a change from the
-earlier "roster selection survives, geometry does not" rule. The *roster* itself
-is of course still global — this is only about who is placed on which court.
+**Geometry is per court; the squad is not.** Who is on the court is the same on
+both — switch from half to full and you're looking at the same five players,
+standing in their own full-court positions with their own full-court routes.
+That holds without any reconciliation at switch time, because the three actions
+that change the squad apply themselves to the stashed board as well as the live
+one: `swapPlayerOnCourt` → `substituteInStash`, `addPlayerToCourt` →
+`addPlayerToStash`, `removePlayerFromCourt` → `removePlayerFromStash`. The two
+boards are therefore squad-identical by construction, and
+`MAX_OFFENSE_ON_COURT` is one global count again.
+
+A substitution is a **rename in place**, never a remove-plus-add: the incoming
+player inherits the outgoing one's spot, routes and ball history — separately on
+each court, in that court's own coordinates. That's what keeps `seq`/`retiredSeq`
+untouched, so playback order survives a sub. When remapping ids, remap rather
+than filter: a `null` end on a `BallTransfer` is the floor, so treating the
+outgoing id as a deletion turns passes into put-downs.
+
+`removePlayerFromStash` is deliberately gentler than its live counterpart, which
+bins the whole transfer chain when the departing player held the ball. Each
+board has its own `ballHolderId`, so that rule applied to the stash would
+destroy unrelated transfers on a court the coach can't see and didn't act on.
+
+The *roster* itself is of course still global — all of this is only about who is
+placed on court.
 
 **Routes.** A player's route is an ordered chain of `RouteSegment`s, each one
 freehand press-drag-release stroke in a single `LineType`

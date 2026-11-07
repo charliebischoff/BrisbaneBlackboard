@@ -14,7 +14,10 @@
  * inside `usePlayEditor.setCourtType` is NOT covered here — only the pure logic.
  */
 import {
+  addPlayerToStash,
   buildDefaultBoard,
+  removePlayerFromStash,
+  substituteInStash,
   switchCourt,
   reconcileStash,
   type CourtBoard,
@@ -333,6 +336,80 @@ console.log('\n13. free-draw marks are per-court, survive a round trip, and outl
   )
   eq('the departed player\'s route goes', reconciled.half!.routes, [])
   eq('...but the annotation stays', reconciled.half!.marks.map((m) => m.id), ['m1'])
+}
+
+console.log('\n14. a substitution is a rename on the stashed board too')
+{
+  // The squad is the same on both courts, so a sub made on one must reach the
+  // other — as a rename, so the incoming player inherits the outgoing one's
+  // spot, routes and ball history *there*, in that court's own coordinates.
+  const stash: CourtStash = {
+    full: board({
+      players: [P('a', 10, 20), P('b', 30, 40)],
+      routes: [R('a', 1), R('b', 2)],
+      ballTransfers: [T('a', 'b', 3), T(null, 'a', 4), T('b', null, 5)],
+      ballHolderId: 'a',
+      marks: [M('m1', 6)],
+      seq: 9,
+      retiredSeq: 2,
+    }),
+  }
+  const out = substituteInStash(stash, 'a', { id: 'c', number: 7, name: 'Cam', photoUrl: 'c.png' })
+  const b = out.full!
+  eq('the outgoing player is replaced, in place', b.players.map((p) => p.id), ['c', 'b'])
+  eq('...keeping the exact spot', { x: b.players[0].x, y: b.players[0].y }, { x: 10, y: 20 })
+  eq('...and taking the roster fields', [b.players[0].number, b.players[0].name], [7, 'Cam'])
+  eq('their route is relabelled, not dropped', b.routes.map((r) => r.playerId), ['c', 'b'])
+  eq(
+    'transfers are remapped at both ends',
+    b.ballTransfers.map((t) => [t.fromId, t.toId]),
+    [['c', 'b'], [null, 'c'], ['b', null]],
+  )
+  eq('a null end stays the floor', b.ballTransfers[2].toId, null)
+  eq('possession follows the sub', b.ballHolderId, 'c')
+  // The whole reason a rename beats remove-plus-add: the authoring counter is
+  // untouched, so playback still replays in the order it was drawn.
+  eq('the sequence counters are untouched', [b.seq, b.retiredSeq], [9, 2])
+  eq('annotations are untouched', b.marks.map((m) => m.id), ['m1'])
+
+  // Subbing in someone already on that board would put them on it twice.
+  const dup = substituteInStash(stash, 'a', { id: 'b', number: 2 })
+  eq('a sub for someone already there is a no-op', dup.full, stash.full)
+}
+
+console.log('\n15. adding and removing reach the stashed board')
+{
+  const stash: CourtStash = {
+    full: board({ players: [P('a', 5, 5)], routes: [R('a', 1)], ballHolderId: 'a' }),
+  }
+  const added = addPlayerToStash(stash, P('z'), () => ({ x: 99, y: 88 }), () => ({ x: 4, y: 0 }))
+  eq('the newcomer joins the other court', added.full!.players.map((p) => p.id), ['a', 'z'])
+  eq('...at the spot that court picked', { x: added.full!.players[1].x, y: added.full!.players[1].y }, { x: 99, y: 88 })
+  eq('a board that already has them is left alone', addPlayerToStash(added, P('z'), () => ({ x: 0, y: 0 }), () => ({ x: 4, y: 0 })).full, added.full)
+
+  // Same rule as the live court: a board with no ball at all hands it over.
+  const empty: CourtStash = { full: board({ players: [], ballHolderId: null, ballLoosePos: null }) }
+  eq('refilling an empty board hands over the ball', addPlayerToStash(empty, P('z'), () => ({ x: 0, y: 0 }), () => ({ x: 4, y: 0 })).full!.ballHolderId, 'z')
+  const loose: CourtStash = { full: board({ players: [], ballHolderId: null, ballLoosePos: { x: 1, y: 1 } }) }
+  eq('...but a loose ball is left where the coach put it', addPlayerToStash(loose, P('z'), () => ({ x: 0, y: 0 }), () => ({ x: 4, y: 0 })).full!.ballHolderId, null)
+
+  // Removal takes their work but, unlike the live board, not everyone else's:
+  // this court's ball holder is its own, and binning the whole chain here would
+  // destroy unrelated transfers on a court the coach can't see.
+  const crowded: CourtStash = {
+    full: board({
+      players: [P('a'), P('b'), P('c')],
+      routes: [R('a', 1), R('b', 2)],
+      ballTransfers: [T('a', 'b', 3), T('b', 'c', 4), T(null, 'c', 5)],
+      ballHolderId: 'a',
+    }),
+  }
+  const removed = removePlayerFromStash(crowded, 'a').full!
+  eq('the player goes', removed.players.map((p) => p.id), ['b', 'c'])
+  eq('...with their route', removed.routes.map((r) => r.playerId), ['b'])
+  eq('...and the transfers naming them', removed.ballTransfers.map((t) => t.seq), [4, 5])
+  eq('possession falls to a survivor', removed.ballHolderId, 'b')
+  eq('a board without them is untouched', removePlayerFromStash(crowded, 'nobody').full, crowded.full)
 }
 
 console.log(failures === 0 ? '\nALL PASS' : `\n${failures} FAILURE(S)`)
